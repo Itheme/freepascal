@@ -361,13 +361,16 @@ begin
               Add('{');
               if flashsize<>0 then
                 begin
-                  LinkStr := '    flash : ORIGIN = 0x' + IntToHex(flashbase,8)
-                    + ', LENGTH = 0x' + IntToHex(flashsize,8);
+                  if ImageBaseSetExplicity then
+                    LinkStr := '    flash : ORIGIN = 0x' + IntToHex(imagebase,8) + ', LENGTH = 0x' + IntToHex(flashsize - (imagebase - flashbase),8)
+                  else
+                    LinkStr := '    flash : ORIGIN = 0x' + IntToHex(flashbase,8) + ', LENGTH = 0x' + IntToHex(flashsize,8);
+
                   Add(LinkStr);
                 end;
 
               LinkStr := '    ram : ORIGIN = 0x' + IntToHex(srambase,8)
-              	+ ', LENGTH = 0x' + IntToHex(sramsize,8);
+                + ', LENGTH = 0x' + IntToHex(sramsize,8);
               Add(LinkStr);
 
               Add('}');
@@ -376,7 +379,7 @@ begin
         end
     else
       if not (cs_link_nolink in current_settings.globalswitches) then
-      	 internalerror(200902011);
+        internalerror(200902011);
   end;
 
   with linkres do
@@ -770,6 +773,13 @@ begin
       success:=DoExec(FindUtil(utilsprefix+'objcopy'),'-O ihex '+
         ChangeFileExt(current_module.exefilename,'.elf')+' '+
         ChangeFileExt(current_module.exefilename,'.hex'),true,false);
+    end;
+
+  if success and (target_info.system in [system_arm_embedded,system_avr_embedded]) then
+    begin
+      success:=DoExec(FindUtil(utilsprefix+'objcopy'),'-O binary '+
+        ChangeFileExt(current_module.exefilename,'.elf')+' '+
+        ChangeFileExt(current_module.exefilename,'.bin'),true,false);
     end;
 
   MakeExecutable:=success;   { otherwise a recursive call to link method }
