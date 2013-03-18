@@ -23,6 +23,7 @@ Unit System;
 {$define FPC_IS_SYSTEM}
 {$define HAS_CMDLINE}
 {$define USE_NOTHREADMANAGER}
+{$define FPC_HAS_FEATURE_RANDOM}
 
 { Do not use standard memory manager }
 {$define HAS_MEMORYMANAGER}
