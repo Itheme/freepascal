@@ -1137,6 +1137,8 @@ implementation
           if embedded_controllers[t].controllertypestr=hs then
             begin
               a:=t;
+              def_system_macro(embedded_controllers[t].controllertypestr);
+              def_system_macro(embedded_controllers[t].controllerunitstr);
               result:=true;
               break;
             end;
