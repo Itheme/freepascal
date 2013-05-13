@@ -4743,7 +4743,12 @@ unit cgcpu;
               end;
 
             if regs=[] then
-              list.concat(taicpu.op_reg_reg(A_MOV,NR_R15,NR_R14))
+              begin
+                if not(CPUARM_HAS_BX in cpu_capabilities[current_settings.cputype]) then
+                  list.concat(taicpu.op_reg_reg(A_MOV,NR_PC,NR_R14))
+                else
+                  list.concat(taicpu.op_reg(A_BX,NR_R14))
+              end
             else
               begin
                 reference_reset(ref,4);
@@ -4752,8 +4757,10 @@ unit cgcpu;
                 list.concat(setoppostfix(taicpu.op_ref_regset(A_LDM,ref,R_INTREGISTER,R_SUBWHOLE,regs),PF_FD));
               end;
           end
+        else if not(CPUARM_HAS_BX in cpu_capabilities[current_settings.cputype]) then
+          list.concat(taicpu.op_reg_reg(A_MOV,NR_PC,NR_R14))
         else
-          list.concat(taicpu.op_reg_reg(A_MOV,NR_PC,NR_R14));
+          list.concat(taicpu.op_reg(A_BX,NR_R14))
       end;
 
    function tthumb2cgarm.handle_load_store(list:TAsmList;op: tasmop;oppostfix : toppostfix;reg:tregister;ref: treference):treference;
