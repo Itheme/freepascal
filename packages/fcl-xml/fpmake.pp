@@ -15,7 +15,7 @@ begin
 
     P:=AddPackage('fcl-xml');
 {$ifdef ALLPACKAGES}
-    P.Directory:='fcl-xml';
+    P.Directory:=ADirectory;
 {$endif ALLPACKAGES}
     P.Version:='2.7.1';
     P.Options.Add('-S2h');
@@ -29,7 +29,7 @@ begin
     P.Email := '';
     P.Description := 'XML and DOM parts of Free Component Libraries (FCL), FPC''s OOP library.';
     P.NeedLibC:= false;
-    P.OSes:=AllOSes-[embedded];
+    P.OSes:=AllOSes-[embedded,msdos];
 
     P.SourcePath.Add('src');
     P.IncludePath.Add('src');

@@ -245,8 +245,13 @@ implementation
 
              { if only one def is a undefined def then they are not considered as
                equal}
-             if (def_from.typ=undefineddef) or
-                (def_to.typ=undefineddef) then
+             if (
+                   (def_from.typ=undefineddef) or
+                   assigned(tstoreddef(def_from).genconstraintdata)
+                 ) or (
+                   (def_to.typ=undefineddef) or
+                   assigned(tstoreddef(def_to).genconstraintdata)
+                 ) then
               begin
                 doconv:=tc_not_possible;
                 compare_defs_ext:=te_incompatible;
@@ -255,9 +260,15 @@ implementation
            end
          else
            begin
-             { undefined defs are considered equal }
-             if (def_from.typ=undefineddef) or
-                (def_to.typ=undefineddef) then
+             { undefined defs or defs with generic constraints are
+               considered equal to everything }
+             if (
+                   (def_from.typ=undefineddef) or
+                   assigned(tstoreddef(def_from).genconstraintdata)
+                 ) or (
+                   (def_to.typ=undefineddef) or
+                   assigned(tstoreddef(def_to).genconstraintdata)
+                 ) then
               begin
                 doconv:=tc_equal;
                 compare_defs_ext:=te_exact;
@@ -271,21 +282,27 @@ implementation
              (df_specialization in def_to.defoptions) and
              (tstoreddef(def_from).genericdef=tstoreddef(def_to).genericdef) then
            begin
-             if tstoreddef(def_from).genericparas.count<>tstoreddef(def_to).genericparas.count then
-               internalerror(2012091301);
+             if assigned(tstoreddef(def_from).genericparas) xor
+                 assigned(tstoreddef(def_to).genericparas) then
+               internalerror(2013030901);
              diff:=false;
-             for i:=0 to tstoreddef(def_from).genericparas.count-1 do
+             if assigned(tstoreddef(def_from).genericparas) then
                begin
-                 if tstoreddef(def_from).genericparas.nameofindex(i)<>tstoreddef(def_to).genericparas.nameofindex(i) then
-                   internalerror(2012091302);
-                 symfrom:=ttypesym(tstoreddef(def_from).genericparas[i]);
-                 symto:=ttypesym(tstoreddef(def_to).genericparas[i]);
-                 if not (symfrom.typ=typesym) or not (symto.typ=typesym) then
-                   internalerror(2012121401);
-                 if not equal_defs(ttypesym(symfrom).typedef,ttypesym(symto).typedef) then
-                   diff:=true;
-                 if diff then
-                   break;
+                 if tstoreddef(def_from).genericparas.count<>tstoreddef(def_to).genericparas.count then
+                   internalerror(2012091301);
+                 for i:=0 to tstoreddef(def_from).genericparas.count-1 do
+                   begin
+                     if tstoreddef(def_from).genericparas.nameofindex(i)<>tstoreddef(def_to).genericparas.nameofindex(i) then
+                       internalerror(2012091302);
+                     symfrom:=ttypesym(tstoreddef(def_from).genericparas[i]);
+                     symto:=ttypesym(tstoreddef(def_to).genericparas[i]);
+                     if not (symfrom.typ=typesym) or not (symto.typ=typesym) then
+                       internalerror(2012121401);
+                     if not equal_defs(ttypesym(symfrom).typedef,ttypesym(symto).typedef) then
+                       diff:=true;
+                     if diff then
+                       break;
+                   end;
                end;
              if not diff then
                begin
@@ -642,15 +659,17 @@ implementation
                           if is_pchar(def_from) then
                            begin
                              doconv:=tc_pchar_2_string;
-                             { prefer ansistrings because pchars can overflow shortstrings, }
-                             { but only if ansistrings are the default (JM)                 }
-                             if (is_shortstring(def_to) and
-                                 not(cs_refcountedstrings in current_settings.localswitches)) or
-                                (is_ansistring(def_to) and
-                                 (cs_refcountedstrings in current_settings.localswitches)) then
-                               eq:=te_convert_l1
+                             { prefer ansistrings/unicodestrings because pchars
+                               can overflow shortstrings; don't use l1/l2/l3
+                               because then pchar -> ansistring has the same
+                               preference as conststring -> pchar, and this
+                               breaks webtbs/tw3328.pp }
+                             if is_ansistring(def_to) then
+                               eq:=te_convert_l2
+                             else if is_wide_or_unicode_string(def_to) then
+                               eq:=te_convert_l3
                              else
-                               eq:=te_convert_l2;
+                              eq:=te_convert_l4
                            end
                           else if is_pwidechar(def_from) then
                            begin
@@ -658,6 +677,8 @@ implementation
                              if is_wide_or_unicode_string(def_to) then
                                eq:=te_convert_l1
                              else
+                               { shortstring and ansistring can both result in
+                                 data loss, so don't prefer one over the other }
                                eq:=te_convert_l3;
                            end;
                        end;
@@ -1265,7 +1286,10 @@ implementation
                      { check for far pointers }
                      if (tpointerdef(def_from).x86pointertyp<>tpointerdef(def_to).x86pointertyp) then
                        begin
-                         eq:=te_incompatible;
+                         if fromtreetype=niln then
+                           eq:=te_equal
+                         else
+                           eq:=te_incompatible;
                        end
                      else
 {$endif x86}
@@ -2089,8 +2113,8 @@ implementation
 
     function proc_to_procvar_equal(def1:tabstractprocdef;def2:tprocvardef;checkincompatibleuniv: boolean):tequaltype;
       var
-        eq : tequaltype;
-        po_comp : tprocoptions;
+        eq: tequaltype;
+        po_comp: tprocoptions;
         pa_comp: tcompare_paras_options;
       begin
          proc_to_procvar_equal:=te_incompatible;
@@ -2124,8 +2148,10 @@ implementation
          if checkincompatibleuniv then
            include(pa_comp,cpo_warn_incompatible_univ);
          { check return value and options, methodpointer is already checked }
-         po_comp:=[po_staticmethod,po_interrupt,
-                   po_iocheck,po_varargs];
+         po_comp:=[po_interrupt,po_iocheck,po_varargs];
+         { check static only if we compare method pointers }
+         if def1.is_methodpointer then
+           include(po_comp,po_staticmethod);
          if (m_delphi in current_settings.modeswitches) then
            exclude(po_comp,po_varargs);
          if (def1.proccalloption=def2.proccalloption) and

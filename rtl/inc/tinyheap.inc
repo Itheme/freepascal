@@ -14,7 +14,7 @@
  **********************************************************************}
 
     const
-      TinyHeapMinBlock = 16;
+      TinyHeapMinBlock = 4*sizeof(pointer);
 
     type
       PTinyHeapBlock = ^TTinyHeapBlock;
@@ -39,6 +39,9 @@
         p, prev: PTinyHeapBlock;
         AllocSize, RestSize: ptruint;
       begin
+{$ifdef DEBUG_TINY_HEAP}
+        Write('SysTinyGetMem(', Size, ')=');
+{$endif DEBUG_TINY_HEAP}
         AllocSize := align(size+sizeof(ptruint), sizeof(pointer));
 
         p := TinyHeapBlocks;
@@ -68,10 +71,14 @@
 
             pptruint(p)^ := size;
 
-            InternalTinyFreeMem(pointer(ptruint(p)+AllocSize), RestSize);
+            if RestSize > 0 then
+              InternalTinyFreeMem(pointer(ptruint(p)+AllocSize), RestSize);
           end
         else
           Result := nil;
+{$ifdef DEBUG_TINY_HEAP}
+        Writeln(ptruint(Result));
+{$endif DEBUG_TINY_HEAP}
       end;
 
     function TinyGetAlignedMem(Size, Alignment: ptruint): pointer;
@@ -167,6 +174,9 @@
       var
         sz: ptruint;
       begin
+{$ifdef DEBUG_TINY_HEAP}
+        Writeln('SysTinyFreeMem(', ptruint(Addr), ')');
+{$endif DEBUG_TINY_HEAP}
         sz := Align(FindSize(addr)+SizeOf(ptruint), sizeof(pointer));
 
         InternalTinyFreeMem(@pptruint(addr)[-1], sz);
@@ -195,6 +205,9 @@
       var
         sz: ptruint;
       begin
+{$ifdef DEBUG_TINY_HEAP}
+        Write('SysTinyReAllocMem(', ptruint(p), ',', size, ')=');
+{$endif DEBUG_TINY_HEAP}
         result := AllocMem(size);
         if result <> nil then
           begin
@@ -208,15 +221,23 @@
           end;
         SysTinyFreeMem(p);
         p := result;
+{$ifdef DEBUG_TINY_HEAP}
+        Writeln(ptruint(result));
+{$endif DEBUG_TINY_HEAP}
       end;
 
     procedure RegisterTinyHeapBlock(AAddress: pointer; ASize: ptruint);
       begin
-        if (ptruint(AAddress) and 1) = 0 then
+{$ifdef DEBUG_TINY_HEAP}
+        Writeln('RegisterTinyHeapBlock(', ptruint(AAddress), ',', ASize, ')');
+{$endif DEBUG_TINY_HEAP}
+        if (ptruint(AAddress) and 1) <> 0 then
           begin
             Inc(AAddress);
             Dec(ASize);
           end;
+        if (ASize and 1) <> 0 then
+          Dec(ASize);
         pptruint(AAddress)^ := ASize - SizeOf(ptruint);
         FreeMem(pptruint(AAddress) + 1, ASize - SizeOf(ptruint));
       end;

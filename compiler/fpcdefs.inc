@@ -52,12 +52,13 @@
   {//$define SUPPORT_MMX}
   {$define cpumm}
   {$define fewintregisters}
-  {$define cpurox}
+  {//$define cpurox}
   {$define SUPPORT_SAFECALL}
   {$define cpuneedsmulhelper}
   { TODO: add another define in order to disable the div helper for 16-bit divs? }
   {$define cpuneedsdiv32helper}
   {$define VOLATILE_ES}
+  {$define SUPPORT_GET_FRAME}
 {$endif i8086}
 
 {$ifdef i386}
@@ -72,6 +73,7 @@
   {$define fewintregisters}
   {$define cpurox}
   {$define SUPPORT_SAFECALL}
+  {$define SUPPORT_GET_FRAME}
 {$endif i386}
 
 {$ifdef x86_64}
@@ -86,6 +88,7 @@
   {$define cpurox}
   {$define cpurefshaveindexreg}
   {$define SUPPORT_SAFECALL}
+  {$define SUPPORT_GET_FRAME}
 {$endif x86_64}
 
 {$ifdef ia64}
@@ -146,6 +149,7 @@
   {$define cputargethasfixedstack}
   {$define cpurefshaveindexreg}
   {$define SUPPORT_SAFECALL}
+  {$define SUPPORT_GET_FRAME}
   { default to armel }
   {$if not(defined(CPUARM)) and not(defined(CPUARMEB)) and not(defined(FPC_OARM)) and not(defined(FPC_ARMEB)) and not(defined(FPC_ARMHF))}
     {$define FPC_ARMEL}
@@ -207,12 +211,13 @@
   {$else}
     {$error mips64 not yet supported}
   {$endif}
-  { define cpuflags}
+  {$define cpuflags} { Flags are emulated }
   {$define cputargethasfixedstack}
   {$define cpurequiresproperalignment}
   { define cpumm}
   {$define cpurefshaveindexreg}
   {$define fpc_compiler_has_fixup_jmps}
+  {$define SUPPORT_GET_FRAME}
 {$endif mips}
 
 {$ifdef jvm}
@@ -221,6 +226,7 @@
   {$define cpu32bitaddr}
   {$define cpuhighleveltarget}
   {$define symansistr}
+  {$define SUPPORT_GET_FRAME}
 {$endif}
 
 {$ifdef aarch64}

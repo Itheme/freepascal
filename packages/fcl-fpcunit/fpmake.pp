@@ -14,7 +14,7 @@ begin
 
     P:=AddPackage('fcl-fpcunit');
 {$ifdef ALLPACKAGES}
-    P.Directory:='fcl-fpcunit';
+    P.Directory:=ADirectory;
 {$endif ALLPACKAGES}
     P.Version:='2.7.1';
     P.Dependencies.Add('paszlib');
@@ -29,7 +29,7 @@ begin
     P.Email := '';
     P.Description := 'Unit testing system inspired by JUnit of Free Component Libraries (FCL), FPC''s OOP library.';
     P.NeedLibC:= false;
-    P.OSes := P.OSes - [embedded,nativent];
+    P.OSes := P.OSes - [embedded,nativent,msdos];
 
     P.SourcePath.Add('src');
     P.IncludePath.Add('src');

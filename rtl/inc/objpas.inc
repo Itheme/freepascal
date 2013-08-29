@@ -374,7 +374,7 @@
       type
          tmethodnamerec = packed record
             name : pshortstring;
-            addr : pointer;
+            addr : codepointer;
          end;
 
          tmethodnametable = packed record
@@ -384,7 +384,7 @@
 
          pmethodnametable =  ^tmethodnametable;
 
-      class function TObject.MethodAddress(const name : shortstring) : pointer;
+      class function TObject.MethodAddress(const name : shortstring) : codepointer;
 
         var
            methodtable : pmethodnametable;
@@ -411,7 +411,7 @@
         end;
 
 
-      class function TObject.MethodName(address : pointer) : shortstring;
+      class function TObject.MethodName(address : codepointer) : shortstring;
         var
            methodtable : pmethodnametable;
            i : dword;
@@ -561,7 +561,7 @@
            PMsgIntTable = ^TMsgIntTable;
            TMsgIntTable = record
               index : dword;
-              method : pointer;
+              method : codepointer;
            end;
 
            PMsgInt = ^TMsgInt;
@@ -716,23 +716,23 @@
               etVirtualMethodResult:
                 begin
                   // IOffset is relative to the VMT, not to instance.
-                  Getter.code := PPointer(PByte(PPointer(Instance)^) + IEntry^.IOffset)^;
+                  Getter.code := PCodePointer(PByte(PPointer(Instance)^) + IEntry^.IOffset)^;
                   TInterfaceGetter(Getter)(obj);
                 end;
               etVirtualMethodClass:
                 begin
                   // IOffset is relative to the VMT, not to instance.
-                  Getter.code := PPointer(PByte(PPointer(Instance)^) + IEntry^.IOffset)^;
+                  Getter.code := PCodePointer(PByte(PPointer(Instance)^) + IEntry^.IOffset)^;
                   TObject(obj) := TClassGetter(Getter)();
                 end;
               etStaticMethodResult:
                 begin
-                  Getter.code := Pointer(IEntry^.IOffset);
+                  Getter.code := CodePointer(IEntry^.IOffset);
                   TInterfaceGetter(Getter)(obj);
                 end;
               etStaticMethodClass:
                 begin
-                  Getter.code := Pointer(IEntry^.IOffset);
+                  Getter.code := CodePointer(IEntry^.IOffset);
                   TObject(obj) := TClassGetter(Getter)();
                 end;
             end;

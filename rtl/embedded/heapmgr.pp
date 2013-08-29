@@ -246,7 +246,7 @@ var
 
 initialization
   SetMemoryManager(MyMemoryManager);
-  RegisterHeapBlock(@initialheap,heapsize);
+  RegisterHeapBlock(@initialheap, heapsize);
 finalization
   //FinalizeHeap;
 end.

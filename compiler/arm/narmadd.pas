@@ -41,16 +41,17 @@ interface
           procedure second_cmpordinal;override;
           procedure second_cmpsmallset;override;
           procedure second_cmp64bit;override;
+          procedure second_add64bit;override;
        end;
 
   implementation
 
     uses
-      globtype,verbose,globals,
-      constexp,symdef,symtable,symtype,
-      aasmbase,aasmdata,aasmcpu,defutil,htypechk,
-      cgbase,cgutils,
-      cpuinfo,pass_1,procinfo,
+      globtype,verbose,globals,systems,
+      constexp,symdef,symtable,symtype,symconst,
+      aasmbase,aasmdata,aasmcpu,
+      defutil,htypechk,cgbase,cgutils,
+      cpuinfo,pass_1,pass_2,procinfo,
       ncon,nadd,ncnv,ncal,nmat,
       ncgutil,cgobj,
       hlcgobj
@@ -139,13 +140,10 @@ interface
               { force fpureg as location, left right doesn't matter
                 as both will be in a fpureg }
               location_force_fpureg(current_asmdata.CurrAsmList,left.location,true);
-              location_force_fpureg(current_asmdata.CurrAsmList,right.location,(left.location.loc<>LOC_CFPUREGISTER));
+              location_force_fpureg(current_asmdata.CurrAsmList,right.location,true);
 
               location_reset(location,LOC_FPUREGISTER,def_cgsize(resultdef));
-              if left.location.loc<>LOC_CFPUREGISTER then
-                location.register:=left.location.register
-              else
-                location.register:=right.location.register;
+              location.register:=cg.getfpuregister(current_asmdata.CurrAsmList,location.size);
 
               case nodetype of
                 addn :
@@ -170,16 +168,11 @@ interface
             begin
               { force mmreg as location, left right doesn't matter
                 as both will be in a fpureg }
-              location_force_mmregscalar(current_asmdata.CurrAsmList,left.location,true);
-              location_force_mmregscalar(current_asmdata.CurrAsmList,right.location,true);
+              hlcg.location_force_mmregscalar(current_asmdata.CurrAsmList,left.location,left.resultdef,true);
+              hlcg.location_force_mmregscalar(current_asmdata.CurrAsmList,right.location,right.resultdef,true);
 
               location_reset(location,LOC_MMREGISTER,def_cgsize(resultdef));
-              if left.location.loc<>LOC_CMMREGISTER then
-                location.register:=left.location.register
-              else if right.location.loc<>LOC_CMMREGISTER then
-                location.register:=right.location.register
-              else
-                location.register:=cg.getmmregister(current_asmdata.CurrAsmList,location.size);
+              location.register:=cg.getmmregister(current_asmdata.CurrAsmList,location.size);
 
               singleprec:=tfloatdef(left.resultdef).floattype=s32real;
               case nodetype of
@@ -214,16 +207,11 @@ interface
             begin
               { force mmreg as location, left right doesn't matter
                 as both will be in a fpureg }
-              location_force_mmregscalar(current_asmdata.CurrAsmList,left.location,true);
-              location_force_mmregscalar(current_asmdata.CurrAsmList,right.location,true);
+              hlcg.location_force_mmregscalar(current_asmdata.CurrAsmList,left.location,left.resultdef,true);
+              hlcg.location_force_mmregscalar(current_asmdata.CurrAsmList,right.location,right.resultdef,true);
 
               location_reset(location,LOC_MMREGISTER,def_cgsize(resultdef));
-              if left.location.loc<>LOC_CMMREGISTER then
-                location.register:=left.location.register
-              else if right.location.loc<>LOC_CMMREGISTER then
-                location.register:=right.location.register
-              else
-                location.register:=cg.getmmregister(current_asmdata.CurrAsmList,location.size);
+              location.register:=cg.getmmregister(current_asmdata.CurrAsmList,location.size);
 
               case nodetype of
                 addn :
@@ -284,8 +272,8 @@ interface
           fpu_vfpv3,
           fpu_vfpv3_d16:
             begin
-              location_force_mmregscalar(current_asmdata.CurrAsmList,left.location,true);
-              location_force_mmregscalar(current_asmdata.CurrAsmList,right.location,true);
+              hlcg.location_force_mmregscalar(current_asmdata.CurrAsmList,left.location,left.resultdef,true);
+              hlcg.location_force_mmregscalar(current_asmdata.CurrAsmList,right.location,right.resultdef,true);
 
               if (tfloatdef(left.resultdef).floattype=s32real) then
                 if nodetype in [equaln,unequaln] then
@@ -303,8 +291,8 @@ interface
             end;
           fpu_fpv4_s16:
             begin
-              location_force_mmregscalar(current_asmdata.CurrAsmList,left.location,true);
-              location_force_mmregscalar(current_asmdata.CurrAsmList,right.location,true);
+              hlcg.location_force_mmregscalar(current_asmdata.CurrAsmList,left.location,left.resultdef,true);
+              hlcg.location_force_mmregscalar(current_asmdata.CurrAsmList,right.location,right.resultdef,true);
 
               if nodetype in [equaln,unequaln] then
                 op:=A_VCMP
@@ -496,12 +484,55 @@ interface
           end;
       end;
 
+    procedure tarmaddnode.second_add64bit;
+      var
+        asmList : TAsmList;
+        ll,rl,res : TRegister64;
+        tmpreg: TRegister;
+      begin
+        if (nodetype in [muln]) then
+          begin
+            asmList := current_asmdata.CurrAsmList;
+            pass_left_right;
+
+            if not(left.location.loc in [LOC_REGISTER,LOC_CREGISTER]) then
+              hlcg.location_force_reg(asmList,left.location,left.resultdef,left.resultdef,true);
+            if not(right.location.loc in [LOC_REGISTER,LOC_CREGISTER]) then
+              hlcg.location_force_reg(asmList,right.location,right.resultdef,right.resultdef,true);
+            set_result_location_reg;
+
+            { shortcuts to register64s }
+            ll:=left.location.register64;
+            rl:=right.location.register64;
+            res:=location.register64;
+
+            tmpreg := cg.getintregister(current_asmdata.CurrAsmList,OS_32);
+            asmList.concat(taicpu.op_reg_reg_reg(A_MUL,tmpreg,ll.reglo,rl.reghi));
+            asmList.concat(taicpu.op_reg_reg_reg_reg(A_UMULL,res.reglo,res.reghi,rl.reglo,ll.reglo));
+            asmList.concat(taicpu.op_reg_reg_reg_reg(A_MLA,tmpreg,rl.reglo,ll.reghi,tmpreg));
+            asmList.concat(taicpu.op_reg_reg_reg(A_ADD,res.reghi,tmpreg,res.reghi));
+          end
+        else
+          inherited second_add64bit;
+      end;
 
     function tarmaddnode.pass_1 : tnode;
       var
         unsigned : boolean;
       begin
-        result:=inherited pass_1;
+        { prepare for MUL64 inlining }
+        if (not(cs_check_overflow in current_settings.localswitches)) and
+           (nodetype in [muln]) and
+           (is_64bitint(left.resultdef)) and
+           (not (current_settings.cputype in cpu_thumb)) then
+          begin
+            result := nil;
+            firstpass(left);
+            firstpass(right);
+            expectloc := LOC_REGISTER;
+          end
+        else
+          result:=inherited pass_1;
 
         if not(assigned(result)) then
           begin

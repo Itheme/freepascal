@@ -176,8 +176,6 @@ type
     property BookmarkSize : integer read GetBookmarkSize;
   end;
   
-  TDataPacketFormat = (dfBinary,dfXML,dfXMLUTF8,dfAny);
-
   { TDoubleLinkedBufIndex }
 
   TDoubleLinkedBufIndex = class(TBufIndex)
@@ -344,12 +342,15 @@ type
 
   { TDataPacketReader }
 
+  TDataPacketFormat = (dfBinary,dfXML,dfXMLUTF8,dfAny);
+
   TDatapacketReaderClass = class of TDatapacketReader;
   TDataPacketReader = class(TObject)
     FStream : TStream;
   protected
     class function RowStateToByte(const ARowState : TRowState) : byte;
     class function ByteToRowState(const AByte : Byte) : TRowState;
+    class procedure RestoreBlobField(ADataset: TCustomBufDataset; AField: TField; ASource: pointer; ASize: integer);
   public
     constructor create(AStream : TStream); virtual;
     // Load a dataset from stream:
@@ -357,10 +358,10 @@ type
     procedure LoadFieldDefs(AFieldDefs : TFieldDefs; var AnAutoIncValue : integer); virtual; abstract;
     // Is called before the records are loaded
     procedure InitLoadRecords; virtual; abstract;
-    // Return the RowState of the current record, and the order of the update
-    function GetRecordRowState(out AUpdOrder : Integer) : TRowState; virtual; abstract;
     // Returns if there is at least one more record available in the stream
     function GetCurrentRecord : boolean; virtual; abstract;
+    // Return the RowState of the current record, and the order of the update
+    function GetRecordRowState(out AUpdOrder : Integer) : TRowState; virtual; abstract;
     // Store a record from stream in the current record buffer
     procedure RestoreRecord(ADataset : TCustomBufDataset); virtual; abstract;
     // Move the stream to the next record
@@ -381,18 +382,28 @@ type
   { TFpcBinaryDatapacketReader }
 
   TFpcBinaryDatapacketReader = class(TDataPacketReader)
+  private
+    const
+      FpcBinaryIdent1 = 'BinBufDataset'; // Old version 1; support for transient period;
+      FpcBinaryIdent2 = 'BinBufDataSet';
+      StringFieldTypes = [ftString,ftFixedChar,ftWideString,ftFixedWideChar];
+      BlobFieldTypes = [ftBlob,ftMemo,ftWideMemo];
+      VarLenFieldTypes = StringFieldTypes + BlobFieldTypes + [ftBytes,ftVarBytes];
+    var
+      FVersion: byte;
   public
     procedure LoadFieldDefs(AFieldDefs : TFieldDefs; var AnAutoIncValue : integer); override;
     procedure StoreFieldDefs(AFieldDefs : TFieldDefs; AnAutoIncValue : integer); override;
-    function GetRecordRowState(out AUpdOrder : Integer) : TRowState; override;
-    procedure FinalizeStoreRecords; override;
-    function GetCurrentRecord : boolean; override;
-    procedure GotoNextRecord; override;
     procedure InitLoadRecords; override;
+    function GetCurrentRecord : boolean; override;
+    function GetRecordRowState(out AUpdOrder : Integer) : TRowState; override;
     procedure RestoreRecord(ADataset : TCustomBufDataset); override;
+    procedure GotoNextRecord; override;
     procedure StoreRecord(ADataset : TCustomBufDataset; ARowState : TRowState; AUpdOrder : integer = 0); override;
+    procedure FinalizeStoreRecords; override;
     class function RecognizeStream(AStream : TStream) : boolean; override;
   end;
+
 
   TCustomBufDataset = class(TDBDataSet)
   private
@@ -461,9 +472,9 @@ type
     procedure SetBufUniDirectional(const AValue: boolean);
     procedure InitDefaultIndexes;
   protected
-    procedure UpdateIndexDefs; override;
     function GetNewWriteBlobBuffer : PBlobBuffer;
     procedure FreeBlobBuffer(var ABlobBuffer: PBlobBuffer);
+    procedure UpdateIndexDefs; override;
     procedure SetRecNo(Value: Longint); override;
     function  GetRecNo: Longint; override;
     function GetChangeCount: integer; virtual;
@@ -507,7 +518,6 @@ type
     function LoadField(FieldDef : TFieldDef;buffer : pointer; out CreateBlob : boolean) : boolean; virtual;
     procedure LoadBlobIntoBuffer(FieldDef: TFieldDef;ABlobBuf: PBufBlobField); virtual; abstract;
     function IsReadFromPacket : Boolean;
-
   public
     constructor Create(AOwner: TComponent); override;
     function GetFieldData(Field: TField; Buffer: Pointer;
@@ -1118,30 +1128,35 @@ begin
     begin
     FFileStream := TFileStream.Create(FileName,fmOpenRead);
     FDatasetReader := GetPacketReader(dfAny, FFileStream);
-    FReadFromFile := True;
     end;
-  if assigned(FDatasetReader) then IntLoadFielddefsFromFile;
+  if assigned(FDatasetReader) then
+    begin
+    FReadFromFile := True;
+    IntLoadFielddefsFromFile;
+    end;
 
   // This is to check if the dataset is actually created (By calling CreateDataset,
   // reading from a stream in some other way implemented by a descendent)
   // If there are less fields then FieldDefs we know for sure that the dataset
   // is not (correctly) created.
 
-  // commented for now. If there are constant expressions in the select
-  // statement they are ftUnknown, and not created.
+  // If there are constant expressions in the select statement (for PostgreSQL)
+  // they are of type ftUnknown (in FieldDefs), and are not created (in Fields).
+  // So Fields.Count < FieldDefs.Count in this case
   // See mantis #22030
 
   //  if Fields.Count<FieldDefs.Count then
-  //    DatabaseError(SErrNoDataset);
+  if Fields.Count = 0 then
+    DatabaseError(SErrNoDataset);
 
   // If there is a field with FieldNo=0 then the fields are not found to the
   // FieldDefs which is a sign that there is no dataset created. (Calculated and
   // lookup fields have FieldNo=-1)
   for i := 0 to Fields.Count-1 do
-    if fields[i].FieldNo=0 then
+    if Fields[i].FieldNo=0 then
       DatabaseError(SErrNoDataset)
-    else if (FAutoIncValue>-1) and (fields[i] is TAutoIncField) and not assigned(FAutoIncField) then
-      FAutoIncField := TAutoIncField(fields[i]);
+    else if (FAutoIncValue>-1) and (Fields[i] is TAutoIncField) and not assigned(FAutoIncField) then
+      FAutoIncField := TAutoIncField(Fields[i]);
 
   InitDefaultIndexes;
   CalcRecordSize;
@@ -1887,8 +1902,12 @@ begin
   // if the current update buffer matches, immediately return true
   if (FCurrentUpdateBuffer < length(FUpdateBuffer)) and (
       FCurrentIndex.CompareBookmarks(@FUpdateBuffer[FCurrentUpdateBuffer].BookmarkData,@ABookmark) or
-      (IncludePrior and (FUpdateBuffer[FCurrentUpdateBuffer].UpdateKind=ukDelete) and FCurrentIndex.CompareBookmarks(@FUpdateBuffer[FCurrentUpdateBuffer].NextBookmarkData,@ABookmark))) then
-    Result := True
+      (IncludePrior
+        and (FUpdateBuffer[FCurrentUpdateBuffer].UpdateKind=ukDelete)
+        and  FCurrentIndex.CompareBookmarks(@FUpdateBuffer[FCurrentUpdateBuffer].NextBookmarkData,@ABookmark))) then
+     begin
+     Result := True;
+     end
   else
     Result := GetRecordUpdateBuffer(ABookmark,IncludePrior);
 end;
@@ -1897,7 +1916,7 @@ function TCustomBufDataset.LoadBuffer(Buffer : TRecordBuffer): TGetResult;
 
 var NullMask        : pbyte;
     x               : longint;
-    CreateblobField : boolean;
+    CreateBlobField : boolean;
     BufBlob         : PBufBlobField;
 
 begin
@@ -1921,9 +1940,9 @@ begin
 
   for x := 0 to FieldDefs.count-1 do
     begin
-    if not LoadField(FieldDefs[x],buffer,CreateblobField) then
+    if not LoadField(FieldDefs[x],buffer,CreateBlobField) then
       SetFieldIsNull(NullMask,x)
-    else if CreateblobField then
+    else if CreateBlobField then
       begin
       BufBlob := PBufBlobField(Buffer);
       BufBlob^.BlobBuffer := GetNewBlobBuffer;
@@ -1937,7 +1956,7 @@ end;
 function TCustomBufDataset.GetCurrentBuffer: TRecordBuffer;
 begin
   if State = dsFilter then Result := FFilterBuffer
-  else if state = dsCalcFields then Result := CalcBuffer
+  else if State = dsCalcFields then Result := CalcBuffer
   else Result := ActiveBuffer;
 end;
 
@@ -2054,7 +2073,6 @@ begin
     begin
     FCurrentUpdateBuffer := length(FUpdateBuffer);
     SetLength(FUpdateBuffer,FCurrentUpdateBuffer+1);
-
     FUpdateBuffer[FCurrentUpdateBuffer].OldValuesBuffer := IntAllocRecordBuffer;
     move(RemRec^, FUpdateBuffer[FCurrentUpdateBuffer].OldValuesBuffer^,FRecordSize);
     end
@@ -2091,30 +2109,34 @@ var StoreRecBM     : TBufBookmark;
     StoreUpdBuf    : integer;
     Bm             : TBufBookmark;
   begin
-    with AUpdBuffer do if assigned(BookmarkData.BookmarkData) then // this is used to exclude buffers which are already handled
+    with AUpdBuffer do
       begin
-      if (UpdateKind = ukModify) then
+      if Not assigned(BookmarkData.BookmarkData) then
+        exit;// this is used to exclude buffers which are already handled
+      Case UpdateKind of
+      ukModify:
         begin
         FCurrentIndex.GotoBookmark(@BookmarkData);
         move(TRecordBuffer(OldValuesBuffer)^,TRecordBuffer(FCurrentIndex.CurrentBuffer)^,FRecordSize);
         FreeRecordBuffer(OldValuesBuffer);
-        end
-      else if (UpdateKind = ukDelete) and (assigned(OldValuesBuffer)) then
-        begin
-        FCurrentIndex.GotoBookmark(@NextBookmarkData);
-        FCurrentIndex.InsertRecordBeforeCurrentRecord(TRecordBuffer(BookmarkData.BookmarkData));
-        FCurrentIndex.ScrollBackward;
-        move(TRecordBuffer(OldValuesBuffer)^,TRecordBuffer(FCurrentIndex.CurrentBuffer)^,FRecordSize);
-
-{        for x := length(FUpdateBuffer)-1 downto 0 do
+        end;
+      ukDelete:
+        if (assigned(OldValuesBuffer)) then
           begin
-          if (FUpdateBuffer[x].UpdateKind=ukDelete) and FCurrentIndex.CompareBookmarks(@FUpdateBuffer[x].NextBookmarkData,@BookmarkData) then
-            CancelUpdBuffer(FUpdateBuffer[x]);
-          end;}
-        FreeRecordBuffer(OldValuesBuffer);
-        inc(FBRecordCount);
-        end
-      else if (UpdateKind = ukInsert) then
+          FCurrentIndex.GotoBookmark(@NextBookmarkData);
+          FCurrentIndex.InsertRecordBeforeCurrentRecord(TRecordBuffer(BookmarkData.BookmarkData));
+          FCurrentIndex.ScrollBackward;
+          move(TRecordBuffer(OldValuesBuffer)^,TRecordBuffer(FCurrentIndex.CurrentBuffer)^,FRecordSize);
+
+          {for x := length(FUpdateBuffer)-1 downto 0 do
+            begin
+            if (FUpdateBuffer[x].UpdateKind=ukDelete) and FCurrentIndex.CompareBookmarks(@FUpdateBuffer[x].NextBookmarkData,@BookmarkData) then
+              CancelUpdBuffer(FUpdateBuffer[x]);
+            end;}
+          FreeRecordBuffer(OldValuesBuffer);
+          inc(FBRecordCount);
+          end  ;
+      ukInsert:
         begin
         // Process all update buffers linked to this record before this record is removed
         StoreUpdBuf:=FCurrentUpdateBuffer;
@@ -2123,7 +2145,10 @@ var StoreRecBM     : TBufBookmark;
         if GetRecordUpdateBuffer(Bm,True,False) then
           begin
           repeat
-          if (FCurrentUpdateBuffer<>StoreUpdBuf) then CancelUpdBuffer(FUpdateBuffer[FCurrentUpdateBuffer]);
+          if (FCurrentUpdateBuffer<>StoreUpdBuf) then
+            begin
+            CancelUpdBuffer(FUpdateBuffer[FCurrentUpdateBuffer]);
+            end;
           until not GetRecordUpdateBuffer(Bm,True,True);
           end;
         FCurrentUpdateBuffer:=StoreUpdBuf;
@@ -2143,6 +2168,7 @@ var StoreRecBM     : TBufBookmark;
         FreeRecordBuffer(TmpBuf);
         dec(FBRecordCount);
         end;
+      end;
       BookmarkData.BookmarkData:=nil;
       end;
   end;
@@ -2252,25 +2278,27 @@ procedure TCustomBufDataset.MergeChangeLog;
 var r            : Integer;
 
 begin
+  for r:=0 to length(FUpdateBuffer)-1 do
+    if assigned(FUpdateBuffer[r].OldValuesBuffer) then
+      FreeMem(FUpdateBuffer[r].OldValuesBuffer);
   SetLength(FUpdateBuffer,0);
 
   if assigned(FUpdateBlobBuffers) then for r:=0 to length(FUpdateBlobBuffers)-1 do
-   if assigned(FUpdateBlobBuffers[r]) then
-    begin
-    if FUpdateBlobBuffers[r]^.OrgBufID >= 0 then
+    if assigned(FUpdateBlobBuffers[r]) then
       begin
-      Freemem(FBlobBuffers[FUpdateBlobBuffers[r]^.OrgBufID]^.Buffer);
-      Dispose(FBlobBuffers[FUpdateBlobBuffers[r]^.OrgBufID]);
-      FBlobBuffers[FUpdateBlobBuffers[r]^.OrgBufID] :=FUpdateBlobBuffers[r];
-      end
-    else
-      begin
-      setlength(FBlobBuffers,length(FBlobBuffers)+1);
-      FUpdateBlobBuffers[r]^.OrgBufID := high(FBlobBuffers);
-      FBlobBuffers[high(FBlobBuffers)] := FUpdateBlobBuffers[r];
-
+      // update blob buffer is already referenced from record buffer (see InternalPost)
+      if FUpdateBlobBuffers[r]^.OrgBufID >= 0 then
+        begin
+        FreeBlobBuffer(FBlobBuffers[FUpdateBlobBuffers[r]^.OrgBufID]);
+        FBlobBuffers[FUpdateBlobBuffers[r]^.OrgBufID] := FUpdateBlobBuffers[r];
+        end
+      else
+        begin
+        setlength(FBlobBuffers,length(FBlobBuffers)+1);
+        FUpdateBlobBuffers[r]^.OrgBufID := high(FBlobBuffers);
+        FBlobBuffers[high(FBlobBuffers)] := FUpdateBlobBuffers[r];
+        end;
       end;
-    end;
   SetLength(FUpdateBlobBuffers,0);
 end;
 
@@ -2281,12 +2309,8 @@ Var i            : integer;
 
 begin
   if assigned(FUpdateBlobBuffers) then for i:=0 to length(FUpdateBlobBuffers)-1 do
-   if assigned(FUpdateBlobBuffers[i]) and (FUpdateBlobBuffers[i]^.FieldNo>0) then
-    begin
-    Reallocmem(FUpdateBlobBuffers[i]^.Buffer,0);
-    Dispose(FUpdateBlobBuffers[i]);
-    FUpdateBlobBuffers[i] := nil;
-    end;
+    if assigned(FUpdateBlobBuffers[i]) and (FUpdateBlobBuffers[i]^.FieldNo>0) then
+      FreeBlobBuffer(FUpdateBlobBuffers[i]);
 end;
 
 procedure TCustomBufDataset.InternalPost;
@@ -2320,7 +2344,6 @@ begin
       FAutoIncField.AsInteger := FAutoIncValue;
       inc(FAutoIncValue);
       end;
-
     // The active buffer is the newly created TDataset record,
     // from which the bookmark is set to the record where the new record should be
     // inserted
@@ -2472,7 +2495,7 @@ var
     TmpRecBuffer : PBufRecLinkItem;
 
 begin
-  checkbrowsemode;
+  CheckBrowseMode;
   if value > RecordCount then
     begin
     repeat until (getnextpacket < FPacketRecords) or (value <= RecordCount) or (FPacketRecords = -1);
@@ -2495,7 +2518,7 @@ Var abuf            :  TRecordBuffer;
 begin
   abuf := GetCurrentBuffer;
   // If abuf isn't assigned, the recordset probably isn't opened.
-  if assigned(abuf) and (FBRecordCount>0) and (state <> dsInsert) then
+  if assigned(abuf) and (FBRecordCount>0) and (State <> dsInsert) then
     Result:=FCurrentIndex.GetRecNo(PBufBookmark(abuf+FRecordSize))
   else
     result := 0;
@@ -2533,7 +2556,7 @@ begin
   setlength(FBlobBuffers,length(FBlobBuffers)+1);
   new(ABlobBuffer);
   fillbyte(ABlobBuffer^,sizeof(ABlobBuffer^),0);
-  ABlobBuffer^.OrgBufID := high(FUpdateBlobBuffers);
+  ABlobBuffer^.OrgBufID := high(FBlobBuffers);
   FBlobBuffers[high(FBlobBuffers)] := ABlobBuffer;
   result := ABlobBuffer;
 end;
@@ -2565,7 +2588,7 @@ begin
   Case Origin of
     soFromBeginning : FPosition:=Offset;
     soFromEnd       : FPosition:=FBlobBuffer^.Size+Offset;
-    soFromCurrent   : FpoSition:=FPosition+Offset;
+    soFromCurrent   : FPosition:=FPosition+Offset;
   end;
   Result:=FPosition;
 end;
@@ -2603,24 +2626,24 @@ var bufblob : TBufBlobField;
 
 begin
   FDataset := Field.DataSet as TCustomBufDataset;
-  if mode = bmread then
+  if Mode = bmRead then
     begin
-    if not field.getData(@bufblob) then
+    if not Field.GetData(@bufblob) then
       DatabaseError(SFieldIsNull);
     if not assigned(bufblob.BlobBuffer) then with FDataSet do
       begin
       FBlobBuffer := GetNewBlobBuffer;
       bufblob.BlobBuffer := FBlobBuffer;
-      LoadBlobIntoBuffer(FieldDefs[field.FieldNo-1],@bufblob);
+      LoadBlobIntoBuffer(FieldDefs[Field.FieldNo-1],@bufblob);
       end
     else
       FBlobBuffer := bufblob.BlobBuffer;
     end
-  else if mode=bmWrite then with FDataSet as TCustomBufDataset do
+  else if Mode=bmWrite then with FDataSet as TCustomBufDataset do
     begin
     FBlobBuffer := GetNewWriteBlobBuffer;
     FBlobBuffer^.FieldNo := Field.FieldNo;
-    if (field.getData(@bufblob)) and assigned(bufblob.BlobBuffer) then
+    if (Field.GetData(@bufblob)) and assigned(bufblob.BlobBuffer) then
       FBlobBuffer^.OrgBufID := bufblob.BlobBuffer^.OrgBufID
     else
       FBlobBuffer^.OrgBufID := -1;
@@ -2633,39 +2656,23 @@ var bufblob : TBufBlobField;
 
 begin
   result := nil;
-  if mode=bmread then
+  if Mode = bmRead then
     begin
-    if not field.getData(@bufblob) then
+    if not Field.GetData(@bufblob) then
       exit;
 
-    result := TBufBlobStream.Create(Field as tblobfield,bmread);
+    result := TBufBlobStream.Create(Field as TBlobField, bmRead);
     end
-  else if mode=bmWrite then
+  else if Mode = bmWrite then
     begin
-    if not (state in [dsEdit, dsInsert, dsFilter, dsCalcFields]) then
-      begin
+    if not (State in [dsEdit, dsInsert, dsFilter, dsCalcFields]) then
       DatabaseErrorFmt(SNotEditing,[Name],self);
-      exit;
-      end;
 
-    result := TBufBlobStream.Create(Field as tblobfield,bmWrite);
+    result := TBufBlobStream.Create(Field as TBlobField, bmWrite);
 
     if not (State in [dsCalcFields, dsFilter, dsNewValue]) then
       DataEvent(deFieldChange, Ptrint(Field));
     end;
-end;
-
-procedure TCustomBufDataset.SaveToFile(AFileName: string;
-  Format: TDataPacketFormat);
-var AFileStream : TFileStream;
-begin
-  if AFileName='' then AFileName := FFileName;
-  AFileStream := TFileStream.Create(AFileName,fmCreate);
-  try
-    SaveToStream(AFileStream, Format);
-  finally
-    AFileStream.Free;
-  end;
 end;
 
 procedure TCustomBufDataset.SetDatasetPacket(AReader: TDataPacketReader);
@@ -2821,31 +2828,43 @@ begin
   end;
 end;
 
-procedure TCustomBufDataset.CreateDataset;
-var AStoreFilename: string;
+procedure TCustomBufDataset.SaveToFile(AFileName: string;
+  Format: TDataPacketFormat);
+var AFileStream : TFileStream;
+begin
+  if AFileName='' then AFileName := FFileName;
+  AFileStream := TFileStream.Create(AFileName,fmCreate);
+  try
+    SaveToStream(AFileStream, Format);
+  finally
+    AFileStream.Free;
+  end;
+end;
 
+procedure TCustomBufDataset.CreateDataset;
+var AStoreFileName: string;
 begin
   CheckInactive;
   if ((FieldCount=0) or (FieldDefs.Count=0)) then
     begin
     if (FieldDefs.Count>0) then
       CreateFields
-    else if (fields.Count>0) then
+    else if (Fields.Count>0) then
       begin
-      InitFieldDefsFromfields;
+      InitFieldDefsFromFields;
       BindFields(True);
       end
     else
       raise Exception.Create(SErrNoFieldsDefined);
     FAutoIncValue:=1;
     end;
-  // When a filename is set, do not read from this file
-  AStoreFilename:=FFileName;
+  // When a FileName is set, do not read from this file
+  AStoreFileName:=FFileName;
   FFileName := '';
   try
     Open;
   finally
-    FFileName:=AStoreFilename;
+    FFileName:=AStoreFileName;
   end;
 end;
 
@@ -2931,6 +2950,7 @@ begin
 
       FFilterBuffer:=IntAllocRecordBuffer;
       fillchar(FFilterBuffer^,FNullmaskSize,0);
+
       FUpdateBuffer[FCurrentUpdateBuffer].OldValuesBuffer := FFilterBuffer;
       FDatasetReader.RestoreRecord(self);
 
@@ -3453,24 +3473,45 @@ begin
   if (AByte and 8)=8 then Result := Result+[rsvUpdated];
 end;
 
+class procedure TDataPacketReader.RestoreBlobField(ADataset: TCustomBufDataset; AField: TField; ASource: pointer; ASize: integer);
+var
+  ABufBlobField: TBufBlobField;
+begin
+  ABufBlobField.BlobBuffer:=ADataset.GetNewBlobBuffer;
+  ABufBlobField.BlobBuffer^.Size:=ASize;
+  ReAllocMem(ABufBlobField.BlobBuffer^.Buffer, ASize);
+  move(ASource^, ABufBlobField.BlobBuffer^.Buffer^, ASize);
+  AField.SetData(@ABufBlobField);
+end;
+
 constructor TDataPacketReader.create(AStream: TStream);
 begin
   FStream := AStream;
 end;
 
-{ TFpcBinaryDatapacketReader }
 
-const FpcBinaryIdent = 'BinBufDataset';
+{ TFpcBinaryDatapacketReader }
 
 procedure TFpcBinaryDatapacketReader.LoadFieldDefs(AFieldDefs: TFieldDefs; var AnAutoIncValue: integer);
 
 var FldCount : word;
     i        : integer;
+    s        : string;
 
 begin
-  if not RecognizeStream(Stream) then
-    DatabaseError(SStreamNotRecognised);
+  // Identify version
+  SetLength(s, 13);
+  if (Stream.Read(s[1], 13) = 13) then
+    case s of
+      FpcBinaryIdent1:
+        FVersion := 10;
+      FpcBinaryIdent2:
+        FVersion := Stream.ReadByte;
+      else
+        DatabaseError(SStreamNotRecognised);
+    end;
 
+  // Read FieldDefs
   FldCount:=Stream.ReadWord;
   AFieldDefs.Clear;
   for i := 0 to FldCount -1 do with TFieldDef.create(AFieldDefs) do
@@ -3490,14 +3531,15 @@ end;
 procedure TFpcBinaryDatapacketReader.StoreFieldDefs(AFieldDefs: TFieldDefs; AnAutoIncValue: integer);
 var i : integer;
 begin
-  Stream.Write(FpcBinaryIdent[1],length(FpcBinaryIdent));
+  Stream.Write(FpcBinaryIdent2[1], length(FpcBinaryIdent2));
+  Stream.WriteByte(20); // version 2.0
 
   Stream.WriteWord(AFieldDefs.Count);
   for i := 0 to AFieldDefs.Count -1 do with AFieldDefs[i] do
     begin
     Stream.WriteAnsiString(Name);
     Stream.WriteAnsiString(DisplayName);
-    Stream.WriteWord(size);
+    Stream.WriteWord(Size);
     Stream.WriteWord(ord(DataType));
 
     if faReadonly in Attributes then
@@ -3507,6 +3549,17 @@ begin
     end;
   i := AnAutoIncValue;
   Stream.WriteBuffer(i,sizeof(i));
+end;
+
+procedure TFpcBinaryDatapacketReader.InitLoadRecords;
+begin
+  //  Do nothing
+end;
+
+function TFpcBinaryDatapacketReader.GetCurrentRecord: boolean;
+var Buf : byte;
+begin
+  Result := (Stream.Read(Buf,1)=1) and (Buf=$fe);
 end;
 
 function TFpcBinaryDatapacketReader.GetRecordRowState(out AUpdOrder : Integer) : TRowState;
@@ -3520,55 +3573,99 @@ begin
     AUpdOrder := 0;
 end;
 
-procedure TFpcBinaryDatapacketReader.FinalizeStoreRecords;
-begin
-  //  Do nothing
-end;
-
-function TFpcBinaryDatapacketReader.GetCurrentRecord: boolean;
-var Buf : byte;
-begin
-  Result := (Stream.Read(Buf,1)=1) and (Buf=$fe);
-end;
-
 procedure TFpcBinaryDatapacketReader.GotoNextRecord;
 begin
   //  Do Nothing
 end;
 
-procedure TFpcBinaryDatapacketReader.InitLoadRecords;
-begin
-  //  SetLength(AChangeLog,0);
-end;
-
 procedure TFpcBinaryDatapacketReader.RestoreRecord(ADataset: TCustomBufDataset);
+var
+  AField: TField;
+  i: integer;
+  L: cardinal;
+  B: TBytes;
 begin
-  Stream.ReadBuffer(ADataset.GetCurrentBuffer^,ADataset.FRecordSize);
+  case FVersion of
+    10:
+      Stream.ReadBuffer(ADataset.GetCurrentBuffer^, ADataset.FRecordSize);  // Ugly because private members of ADataset are used...
+    20:
+      with ADataset do
+        for i:=0 to FieldDefs.Count-1 do
+          begin
+          AField := Fields.FieldByNumber(FieldDefs[i].FieldNo);
+          if AField=nil then continue;
+          if AField.DataType in StringFieldTypes then
+            AField.AsString := Stream.ReadAnsiString
+          else
+            begin
+            if AField.DataType in VarLenFieldTypes then
+              L := Stream.ReadDWord
+            else
+              L := AField.DataSize;
+            SetLength(B, L);
+            if L > 0 then
+              Stream.ReadBuffer(B[0], L);
+            if AField.DataType in BlobFieldTypes then
+              RestoreBlobField(ADataset, AField, @B[0], L)
+            else
+              AField.SetData(@B[0], False);  // set it to the FilterBuffer
+            end;
+          end;
+  end;
 end;
 
 procedure TFpcBinaryDatapacketReader.StoreRecord(ADataset: TCustomBufDataset;
   ARowState: TRowState; AUpdOrder : integer);
+var
+  AField: TField;
+  i: integer;
+  L: cardinal;
+  B: TBytes;
 begin
-  // Ugly because private members of ADataset are used...
+  // Record header
   Stream.WriteByte($fe);
   Stream.WriteByte(RowStateToByte(ARowState));
   if ARowState<>[] then
     Stream.WriteBuffer(AUpdOrder,sizeof(integer));
-  Stream.WriteBuffer(ADataset.GetCurrentBuffer^,ADataset.FRecordSize);
+
+  // Record data
+  // Old 1.0 version: Stream.WriteBuffer(ADataset.GetCurrentBuffer^, ADataset.FRecordSize);
+  with ADataset do
+    for i:=0 to FieldDefs.Count-1 do
+      begin
+      AField := Fields.FieldByNumber(FieldDefs[i].FieldNo);
+      if AField=nil then continue;
+      if AField.DataType in StringFieldTypes then
+        Stream.WriteAnsiString(AField.AsString)
+      else
+        begin
+        B := AField.AsBytes;
+        L := length(B);
+        if AField.DataType in VarLenFieldTypes then
+          Stream.WriteDWord(L);
+        if L > 0 then
+          Stream.WriteBuffer(B[0], L);
+        end;
+     end;
 end;
 
-class function TFpcBinaryDatapacketReader.RecognizeStream(AStream: TStream
-  ): boolean;
-var s        : string;
-    len      : integer;
+procedure TFpcBinaryDatapacketReader.FinalizeStoreRecords;
 begin
-  Len := length(FpcBinaryIdent);
-  setlength(s,len);
-  if (AStream.Read (s[1],len) = len)
-  and (s=FpcBinaryIdent) then
-    Result := True
-  else
-    Result := False;
+  //  Do nothing
+end;
+
+class function TFpcBinaryDatapacketReader.RecognizeStream(AStream: TStream): boolean;
+var s : string;
+begin
+  SetLength(s, 13);
+  if (AStream.Read(s[1], 13) = 13) then
+    case s of
+      FpcBinaryIdent1,
+      FpcBinaryIdent2:
+        Result := True;
+      else
+        Result := False;
+    end;
 end;
 
 { TUniDirectionalBufIndex }

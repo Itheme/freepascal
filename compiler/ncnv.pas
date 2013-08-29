@@ -48,7 +48,6 @@ interface
           procedure buildderefimpl;override;
           procedure derefimpl;override;
           function dogetcopy : tnode;override;
-          function actualtargetnode: tnode;override;
           procedure printnodeinfo(var t : text);override;
           function pass_1 : tnode;override;
           function pass_typecheck:tnode;override;
@@ -1049,7 +1048,7 @@ implementation
                    begin
                      pchtemp:=concatansistrings(tstringconstnode(left).value_str,pchar(StringOfChar(#0,arrsize-tstringconstnode(left).len)),tstringconstnode(left).len,arrsize-tstringconstnode(left).len);
                      left.free;
-                     left:=cstringconstnode.createpchar(pchtemp,arrsize);
+                     left:=cstringconstnode.createpchar(pchtemp,arrsize,nil);
                      typecheckpass(left);
                    end;
                  exit;
@@ -2098,15 +2097,6 @@ implementation
          r.obj:=self;
          if assigned(r.proc) then
           result:=tprocedureofobject(r)();
-      end;
-
-
-    function ttypeconvnode.actualtargetnode: tnode;
-      begin
-        result:=self;
-        while (result.nodetype=typeconvn) and
-              ttypeconvnode(result).retains_value_location do
-          result:=ttypeconvnode(result).left;
       end;
 
 

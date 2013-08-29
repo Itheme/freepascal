@@ -103,7 +103,11 @@ interface
          pointer(-1) will result in a pointer with the value
          $fffffffffffffff on a 32bit machine if the compiler uses
          int64 constants internally (JM) }
+{$ifdef i8086}
+       TConstPtrUInt = LongWord;  { 32-bit for far pointers support }
+{$else i8086}
        TConstPtrUInt = AWord;
+{$endif i8086}
 
        { Use a variant record to be sure that the array if aligned correctly }
        tdoublerec=record
@@ -577,7 +581,9 @@ interface
          { subroutine contains inherited call }
          pi_has_inherited,
          { subroutine has nested exit }
-         pi_has_nested_exit
+         pi_has_nested_exit,
+         { allocates memory on stack, so stack is unbalanced on exit }
+         pi_has_stack_allocs
        );
        tprocinfoflags=set of tprocinfoflag;
 
@@ -665,6 +671,8 @@ interface
         state : tmsgstate;
       end;
 
+    type
+      tx86memorymodel = (mm_tiny,mm_small,mm_medium,mm_compact,mm_large,mm_huge);
 
   { hide Sysutils.ExecuteProcess in units using this one after SysUtils}
   const

@@ -109,7 +109,13 @@ implementation
                  begin
                    getmem(sp,tstringconstnode(p).len+1);
                    move(tstringconstnode(p).value_str^,sp^,tstringconstnode(p).len+1);
-                   hp:=tconstsym.create_string(orgname,conststring,sp,tstringconstnode(p).len);
+                   { if a non-default ansistring code page has been specified,
+                     keep it }
+                   if is_ansistring(p.resultdef) and
+                      (tstringdef(p.resultdef).encoding<>0) then
+                     hp:=tconstsym.create_string(orgname,conststring,sp,tstringconstnode(p).len,p.resultdef)
+                   else
+                     hp:=tconstsym.create_string(orgname,conststring,sp,tstringconstnode(p).len,nil);
                  end;
              end;
            realconstn :
@@ -360,6 +366,52 @@ implementation
 
     procedure types_dec(in_structure: boolean);
 
+      function determine_generic_def(name:tidstring):tstoreddef;
+        var
+          hashedid : THashedIDString;
+          pd : tprocdef;
+          sym : tsym;
+        begin
+          result:=nil;
+          { check whether this is a declaration of a type inside a
+            specialization }
+          if assigned(current_structdef) and
+              (df_specialization in current_structdef.defoptions) then
+            begin
+              if not assigned(current_structdef.genericdef) or
+                  not (current_structdef.genericdef.typ in [recorddef,objectdef]) then
+                internalerror(2011052301);
+              hashedid.id:=name;
+              { we could be inside a method of the specialization
+                instead of its declaration, so check that first (as
+                local nested types aren't allowed we don't need to
+                walk the symtablestack to find the localsymtable) }
+              if symtablestack.top.symtabletype=localsymtable then
+                begin
+                  { we are in a method }
+                  if not assigned(symtablestack.top.defowner) or
+                      (symtablestack.top.defowner.typ<>procdef) then
+                    internalerror(2011120701);
+                  pd:=tprocdef(symtablestack.top.defowner);
+                  if not assigned(pd.genericdef) or (pd.genericdef.typ<>procdef) then
+                    internalerror(2011120702);
+                  sym:=tsym(tprocdef(pd.genericdef).localst.findwithhash(hashedid));
+                end
+              else
+                sym:=nil;
+              if not assigned(sym) or not (sym.typ=typesym) then
+                begin
+                  { now search in the declaration of the generic }
+                  sym:=tsym(tabstractrecorddef(current_structdef.genericdef).symtable.findwithhash(hashedid));
+                  if not assigned(sym) or not (sym.typ=typesym) then
+                    internalerror(2011052302);
+                end;
+              { use the corresponding type in the generic's symtable as
+                genericdef for the specialized type }
+              result:=tstoreddef(ttypesym(sym).typedef);
+            end;
+        end;
+
       procedure finalize_class_external_status(od: tobjectdef);
         begin
           if  [oo_is_external,oo_is_forward] <= od.objectoptions then
@@ -389,8 +441,6 @@ implementation
          p:tnode;
          gendef : tstoreddef;
          s : shortstring;
-         pd: tprocdef;
-         hashedid : thashedidstring;
 {$ifdef x86}
          segment_register: string;
 {$endif x86}
@@ -508,8 +558,11 @@ implementation
                         internalerror(200811072);
                     end;
                     consume(token);
+                    { determine the generic def in case we are in a nested type
+                      of a specialization }
+                    gendef:=determine_generic_def(gentypename);
                     { we can ignore the result, the definition is modified }
-                    object_dec(objecttype,genorgtypename,newtype,nil,nil,tobjectdef(ttypesym(sym).typedef),ht_none);
+                    object_dec(objecttype,genorgtypename,newtype,gendef,generictypelist,tobjectdef(ttypesym(sym).typedef),ht_none);
                     newtype:=ttypesym(sym);
                     hdef:=newtype.typedef;
                   end
@@ -564,43 +617,9 @@ implementation
                       sym:=nil;
                     end;
 
-                  { check whether this is a declaration of a type inside a
-                    specialization }
-                  if assigned(current_structdef) and
-                      (df_specialization in current_structdef.defoptions) then
-                    begin
-                      if not assigned(current_structdef.genericdef) or
-                          not (current_structdef.genericdef.typ in [recorddef,objectdef]) then
-                        internalerror(2011052301);
-                      hashedid.id:=gentypename;
-                      { we could be inside a method of the specialization
-                        instead of its declaration, so check that first (as
-                        local nested types aren't allowed we don't need to
-                        walk the symtablestack to find the localsymtable) }
-                      if symtablestack.top.symtabletype=localsymtable then
-                        begin
-                          { we are in a method }
-                          if not assigned(symtablestack.top.defowner) or
-                              (symtablestack.top.defowner.typ<>procdef) then
-                            internalerror(2011120701);
-                          pd:=tprocdef(symtablestack.top.defowner);
-                          if not assigned(pd.genericdef) or (pd.genericdef.typ<>procdef) then
-                            internalerror(2011120702);
-                          sym:=tsym(tprocdef(pd.genericdef).localst.findwithhash(hashedid));
-                        end
-                      else
-                        sym:=nil;
-                      if not assigned(sym) or not (sym.typ=typesym) then
-                        begin
-                          { now search in the declaration of the generic }
-                          sym:=tsym(tabstractrecorddef(current_structdef.genericdef).symtable.findwithhash(hashedid));
-                          if not assigned(sym) or not (sym.typ=typesym) then
-                            internalerror(2011052302);
-                        end;
-                      { use the corresponding type in the generic's symtable as
-                        genericdef for the specialized type }
-                      gendef:=tstoreddef(ttypesym(sym).typedef);
-                    end;
+                  { determine the generic def in case we are in a nested type
+                    of a specialization }
+                  gendef:=determine_generic_def(gentypename);
                 end;
               { insert a new type if we don't reuse an existing symbol }
               if not assigned(newtype) then
@@ -929,7 +948,7 @@ implementation
                                 getmem(sp,2);
                                 sp[0]:=chr(tordconstnode(p).value.svalue);
                                 sp[1]:=#0;
-                                sym:=tconstsym.create_string(orgname,constresourcestring,sp,1);
+                                sym:=tconstsym.create_string(orgname,constresourcestring,sp,1,nil);
                              end
                            else
                              Message(parser_e_illegal_expression);
@@ -939,7 +958,7 @@ implementation
                           begin
                              getmem(sp,len+1);
                              move(value_str^,sp^,len+1);
-                             sym:=tconstsym.create_string(orgname,constresourcestring,sp,len);
+                             sym:=tconstsym.create_string(orgname,constresourcestring,sp,len,nil);
                           end;
                       else
                         Message(parser_e_illegal_expression);

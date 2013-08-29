@@ -204,7 +204,10 @@ type
 
   { TPpuProcTypeDef }
   TPpuProcTypeDef = class(TPpuProcDef)
+  protected
+    procedure BeforeWriteItems(Output: TPpuOutput); override;
   public
+    MethodPtr: boolean;
     constructor Create(AParent: TPpuContainerDef); override;
   end;
 
@@ -264,6 +267,7 @@ type
     Options: TPpuObjOptions;
     IID: string;
     HelperParent: TPpuRef;
+    Size: integer;
     constructor Create(AParent: TPpuContainerDef); override;
     destructor Destroy; override;
     function CanWrite: boolean; override;
@@ -939,6 +943,7 @@ begin
         Output.WriteStr('', ObjOptionNames[opt]);
     Output.WriteArrayEnd('Options');
   end;
+  Output.WriteInt('Size', Size);
   if IID <> '' then
     Output.WriteStr('IID', IID);
   if not HelperParent.IsNull then
@@ -1033,6 +1038,13 @@ end;
 
 { TPpuProcTypeDef }
 
+procedure TPpuProcTypeDef.BeforeWriteItems(Output: TPpuOutput);
+begin
+  inherited BeforeWriteItems(Output);
+  if MethodPtr then
+    Output.WriteBool('MethodPtr', MethodPtr);
+end;
+
 constructor TPpuProcTypeDef.Create(AParent: TPpuContainerDef);
 begin
   inherited Create(AParent);
@@ -1053,8 +1065,7 @@ begin
         Output.WriteStr('', ProcOptionNames[opt]);
     Output.WriteArrayEnd('Options');
   end;
-  if Options*[poProcedure, poDestructor] = [] then
-    ReturnType.Write(Output, 'RetType');
+  ReturnType.Write(Output, 'RetType');
 end;
 
 constructor TPpuProcDef.Create(AParent: TPpuContainerDef);

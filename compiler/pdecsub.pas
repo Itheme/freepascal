@@ -103,7 +103,7 @@ implementation
        { parameter handling }
        paramgr,cpupara,
        { pass 1 }
-       fmodule,node,htypechk,ncon,
+       fmodule,node,htypechk,ncon,ppu,
        objcutil,
        { parser }
        scanner,
@@ -1078,6 +1078,13 @@ implementation
               end;
             single_type(pd.returndef,[stoAllowSpecialization]);
 
+// Issue #24863, commented out for now because it breaks building of RTL and needs extensive
+// testing and/or RTL patching.
+{
+            if ((pd.returndef=cvarianttype) or (pd.returndef=colevarianttype)) and
+               not(cs_compilesystem in current_settings.moduleswitches) then
+              current_module.flags:=current_module.flags or uf_uses_variants;
+}
             if is_dispinterface(pd.struct) and not is_automatable(pd.returndef) then
               Message1(type_e_not_automatable,pd.returndef.typename);
 
@@ -2928,9 +2935,17 @@ const
            else
             break;
          end;
+         { nostackframe requires assembler, but assembler
+           may be specified in the implementation part only,
+           and in not required if the function is first forward declared
+           if it is a procdef that has forwardef set to true
+           we postpone the possible error message to the real implementation
+           parse_only does not need to be considered as po_nostackframe
+           is an implementation only directive  }
          if (po_nostackframe in pd.procoptions) and
-            not (po_assembler in pd.procoptions) then
-           message(parser_w_nostackframe_without_assembler);
+            not (po_assembler in pd.procoptions) and
+            ((pd.typ<>procdef) or not tprocdef(pd).forwarddef) then
+           message(parser_e_nostackframe_without_assembler);
       end;
 
 

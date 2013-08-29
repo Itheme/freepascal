@@ -52,8 +52,10 @@ unit cgobj;
           by Free Pascal. For 32-bit processors, the base class
           should be @link(tcg64f32) and not @var(tcg).
        }
+
+       { tcg }
+
        tcg = class
-       public
           { how many times is this current code executed }
           executionweight : longint;
           alignment : talignment;
@@ -271,6 +273,9 @@ unit cgobj;
           procedure a_opmm_ref_reg(list: TAsmList; Op: TOpCG; size : tcgsize;const ref: treference; reg: tregister;shuffle : pmmshuffle); virtual;
           procedure a_opmm_loc_reg(list: TAsmList; Op: TOpCG; size : tcgsize;const loc: tlocation; reg: tregister;shuffle : pmmshuffle); virtual;
           procedure a_opmm_reg_ref(list: TAsmList; Op: TOpCG; size : tcgsize;reg: tregister;const ref: treference; shuffle : pmmshuffle); virtual;
+          procedure a_opmm_loc_reg_reg(list: TAsmList;Op : TOpCG;size : tcgsize;const loc : tlocation;src,dst : tregister;shuffle : pmmshuffle); virtual;
+          procedure a_opmm_reg_reg_reg(list: TAsmList; Op: TOpCG; size : tcgsize;src1,src2,dst: tregister;shuffle : pmmshuffle); virtual;
+          procedure a_opmm_ref_reg_reg(list: TAsmList; Op: TOpCG; size : tcgsize;const ref: treference; src,dst: tregister;shuffle : pmmshuffle); virtual;
 
           procedure a_loadmm_intreg_reg(list: TAsmList; fromsize, tosize : tcgsize; intreg, mmreg: tregister; shuffle: pmmshuffle); virtual;
           procedure a_loadmm_reg_intreg(list: TAsmList; fromsize, tosize : tcgsize; mmreg, intreg: tregister; shuffle : pmmshuffle); virtual;
@@ -697,14 +702,14 @@ implementation
     procedure tcg.allocallcpuregisters(list:TAsmList);
       begin
         alloccpuregisters(list,R_INTREGISTER,paramanager.get_volatile_registers_int(pocall_default));
-{$if not(defined(i386)) and not(defined(avr))}
+{$if not(defined(i386)) and not(defined(i8086)) and not(defined(avr))}
         if uses_registers(R_FPUREGISTER) then
           alloccpuregisters(list,R_FPUREGISTER,paramanager.get_volatile_registers_fpu(pocall_default));
 {$ifdef cpumm}
         if uses_registers(R_MMREGISTER) then
           alloccpuregisters(list,R_MMREGISTER,paramanager.get_volatile_registers_mm(pocall_default));
 {$endif cpumm}
-{$endif not(defined(i386)) and not(defined(avr))}
+{$endif not(defined(i386)) and not(defined(i8086)) and not(defined(avr))}
       end;
 
 
@@ -720,14 +725,14 @@ implementation
     procedure tcg.deallocallcpuregisters(list:TAsmList);
       begin
         dealloccpuregisters(list,R_INTREGISTER,paramanager.get_volatile_registers_int(pocall_default));
-{$if not(defined(i386)) and not(defined(avr))}
+{$if not(defined(i386)) and not(defined(i8086)) and not(defined(avr))}
         if uses_registers(R_FPUREGISTER) then
           dealloccpuregisters(list,R_FPUREGISTER,paramanager.get_volatile_registers_fpu(pocall_default));
 {$ifdef cpumm}
         if uses_registers(R_MMREGISTER) then
           dealloccpuregisters(list,R_MMREGISTER,paramanager.get_volatile_registers_mm(pocall_default));
 {$endif cpumm}
-{$endif not(defined(i386)) and not(defined(avr))}
+{$endif not(defined(i386)) and not(defined(i8086)) and not(defined(avr))}
       end;
 
 
@@ -2058,6 +2063,33 @@ implementation
           else
             internalerror(200312232);
         end;
+      end;
+
+
+    procedure tcg.a_opmm_loc_reg_reg(list: TAsmList; Op: TOpCG; size : tcgsize;const loc: tlocation; src,dst: tregister;shuffle : pmmshuffle);
+      begin
+        case loc.loc of
+          LOC_CMMREGISTER,LOC_MMREGISTER:
+            a_opmm_reg_reg_reg(list,op,size,loc.register,src,dst,shuffle);
+          LOC_CREFERENCE,LOC_REFERENCE:
+            a_opmm_ref_reg_reg(list,op,size,loc.reference,src,dst,shuffle);
+          else
+            internalerror(200312232);
+        end;
+      end;
+
+
+    procedure tcg.a_opmm_reg_reg_reg(list : TAsmList;Op : TOpCG;size : tcgsize;
+      src1,src2,dst : tregister;shuffle : pmmshuffle);
+      begin
+        internalerror(2013061102);
+      end;
+
+
+    procedure tcg.a_opmm_ref_reg_reg(list : TAsmList;Op : TOpCG;size : tcgsize;
+      const ref : treference;src,dst : tregister;shuffle : pmmshuffle);
+      begin
+        internalerror(2013061101);
       end;
 
 

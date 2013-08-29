@@ -138,7 +138,10 @@ interface
           { for use by dwarf debugger information }
           aitconst_16bit_unaligned,
           aitconst_32bit_unaligned,
-          aitconst_64bit_unaligned
+          aitconst_64bit_unaligned,
+          { i8086 far pointer; emits: 'DW symbol, SEG symbol' }
+          aitconst_farptr,
+          aitconst_got
         );
 
     const
@@ -483,7 +486,6 @@ interface
        { Generates an assembler label }
        tai_label = class(tai)
           labsym    : tasmlabel;
-          is_global : boolean;
 {$ifdef arm}
           { set to true when the label has been moved by insertpcrelativedata to the correct location
             so one label can be used multiple times }
@@ -566,12 +568,20 @@ interface
           constructor Create_uleb128bit(_value : qword);
           constructor Create_aint(_value : aint);
           constructor Create_pint(_value : pint);
+          constructor Create_pint_unaligned(_value : pint);
           constructor Create_sym(_sym:tasmsymbol);
           constructor Create_type_sym(_typ:taiconst_type;_sym:tasmsymbol);
           constructor Create_sym_offset(_sym:tasmsymbol;ofs:aint);
+          constructor Create_type_sym_offset(_typ:taiconst_type;_sym:tasmsymbol;ofs:aint);
           constructor Create_rel_sym(_typ:taiconst_type;_sym,_endsym:tasmsymbol);
+          constructor Create_rel_sym_offset(_typ : taiconst_type; _sym,_endsym : tasmsymbol; _ofs : int64);
           constructor Create_rva_sym(_sym:tasmsymbol);
           constructor Createname(const name:string;ofs:aint);
+          constructor Createname(const name:string;_symtyp:Tasmsymtype;ofs:aint);
+          constructor Create_type_name(_typ:taiconst_type;const name:string;ofs:aint);
+          constructor Create_type_name(_typ:taiconst_type;const name:string;_symtyp:Tasmsymtype;ofs:aint);
+          constructor Create_nil_codeptr;
+          constructor Create_nil_dataptr;
           constructor ppuload(t:taitype;ppufile:tcompilerppufile);override;
           procedure ppuwrite(ppufile:tcompilerppufile);override;
           procedure derefimpl;override;
@@ -1280,6 +1290,10 @@ implementation
          typ:=ait_symbol;
          sym:=_sym;
          size:=siz;
+         { don't redefine global/external symbols as local, as code to access
+           such symbols is different on some platforms }
+         if not(sym.bind in [AB_NONE,AB_LOCAL]) then
+           internalerror(2013081601);
          sym.bind:=AB_LOCAL;
          is_global:=false;
       end;
@@ -1365,7 +1379,9 @@ implementation
       begin
          inherited Create;
          typ:=ait_symbol_end;
-         sym:=current_asmdata.RefAsmSymbol(_name);
+         sym:=current_asmdata.GetAsmSymbol(_name);
+         if not assigned(sym) then
+           internalerror(2013080301);
       end;
 
 
@@ -1604,6 +1620,17 @@ implementation
       end;
 
 
+    constructor tai_const.Create_pint_unaligned(_value: pint);
+      begin
+         inherited Create;
+         typ:=ait_const;
+         consttype:=aitconst_ptr_unaligned;
+         value:=_value;
+         sym:=nil;
+         endsym:=nil;
+      end;
+
+
     constructor tai_const.Create_type_sym(_typ:taiconst_type;_sym:tasmsymbol);
       begin
          inherited Create;
@@ -1628,7 +1655,42 @@ implementation
       begin
          inherited Create;
          typ:=ait_const;
+{$ifdef i8086}
+         if assigned(_sym) and (_sym.typ=AT_DATA) then
+           begin
+             if current_settings.x86memorymodel in x86_far_data_models then
+               consttype:=aitconst_farptr
+             else
+               consttype:=aitconst_ptr;
+           end
+         else
+           begin
+             if current_settings.x86memorymodel in x86_far_code_models then
+               consttype:=aitconst_farptr
+             else
+               consttype:=aitconst_ptr;
+           end;
+{$else i8086}
          consttype:=aitconst_ptr;
+{$endif i8086}
+         { sym is allowed to be nil, this is used to write nil pointers }
+         sym:=_sym;
+         endsym:=nil;
+         { store the original offset in symofs so that we can recalculate the
+           value field in the assembler }
+         symofs:=ofs;
+         value:=ofs;
+         { update sym info }
+         if assigned(sym) then
+           sym.increfs;
+      end;
+
+
+    constructor tai_const.Create_type_sym_offset(_typ : taiconst_type;_sym : tasmsymbol; ofs : aint);
+      begin
+         inherited Create;
+         typ:=ait_const;
+         consttype:=_typ;
          { sym is allowed to be nil, this is used to write nil pointers }
          sym:=_sym;
          endsym:=nil;
@@ -1651,6 +1713,15 @@ implementation
       end;
 
 
+    constructor tai_const.Create_rel_sym_offset(_typ: taiconst_type; _sym,_endsym: tasmsymbol; _ofs: int64);
+       begin
+         self.create_sym_offset(_sym,_ofs);
+         consttype:=_typ;
+         endsym:=_endsym;
+         endsym.increfs;
+       end;
+
+
     constructor tai_const.Create_rva_sym(_sym:tasmsymbol);
       begin
          self.create_sym_offset(_sym,0);
@@ -1660,7 +1731,60 @@ implementation
 
     constructor tai_const.Createname(const name:string;ofs:aint);
       begin
-         self.create_sym_offset(current_asmdata.RefAsmSymbol(name),ofs);
+         self.Createname(name,AT_NONE,ofs);
+      end;
+
+
+    constructor tai_const.Createname(const name:string;_symtyp:Tasmsymtype;ofs:aint);
+      begin
+         self.create_sym_offset(current_asmdata.RefAsmSymbol(name,_symtyp),ofs);
+      end;
+
+
+    constructor tai_const.Create_type_name(_typ:taiconst_type;const name:string;ofs:aint);
+      begin
+         self.Create_type_name(_typ,name,AT_NONE,ofs);
+      end;
+
+
+    constructor tai_const.Create_type_name(_typ:taiconst_type;const name:string;_symtyp:Tasmsymtype;ofs:aint);
+      begin
+         self.create_sym_offset(current_asmdata.RefAsmSymbol(name,_symtyp),ofs);
+         consttype:=_typ;
+      end;
+
+
+    constructor tai_const.Create_nil_codeptr;
+      begin
+        inherited Create;
+        typ:=ait_const;
+{$ifdef i8086}
+        if current_settings.x86memorymodel in x86_far_code_models then
+          consttype:=aitconst_farptr
+        else
+{$endif i8086}
+          consttype:=aitconst_ptr;
+        sym:=nil;
+        endsym:=nil;
+        symofs:=0;
+        value:=0;
+      end;
+
+
+    constructor tai_const.Create_nil_dataptr;
+      begin
+        inherited Create;
+        typ:=ait_const;
+{$ifdef i8086}
+        if current_settings.x86memorymodel in x86_far_data_models then
+          consttype:=aitconst_farptr
+        else
+{$endif i8086}
+          consttype:=aitconst_ptr;
+        sym:=nil;
+        endsym:=nil;
+        symofs:=0;
+        value:=0;
       end;
 
 
@@ -1693,7 +1817,8 @@ implementation
       begin
         getcopy:=inherited getcopy;
         { we need to increase the reference number }
-        sym.increfs;
+        if assigned(sym) then
+          sym.increfs;
         if assigned(endsym) then
           endsym.increfs;
       end;
@@ -1954,7 +2079,6 @@ implementation
         typ:=ait_label;
         labsym:=_labsym;
         labsym.is_set:=true;
-        is_global:=(labsym.bind in [AB_GLOBAL,AB_PRIVATE_EXTERN]);
       end;
 
 
@@ -1962,7 +2086,7 @@ implementation
       begin
         inherited ppuload(t,ppufile);
         labsym:=tasmlabel(ppufile.getasmsymbol);
-        is_global:=boolean(ppufile.getbyte);
+        ppufile.getbyte; { was is_global flag, now unused }
       end;
 
 
@@ -1970,7 +2094,7 @@ implementation
       begin
         inherited ppuwrite(ppufile);
         ppufile.putasmsymbol(labsym);
-        ppufile.putbyte(byte(is_global));
+        ppufile.putbyte(0); { was is_global flag, now unused }
       end;
 
 

@@ -602,7 +602,8 @@ const
   symtblopt : array[1..symtblopts] of tsymtblopt=(
      (mask:sto_has_helper;   str:'Has helper'),
      (mask:sto_has_generic;  str:'Has generic'),
-     (mask:sto_has_operator; str:'Has operator')
+     (mask:sto_has_operator; str:'Has operator'),
+     (mask:sto_needs_init_final;str:'Needs init final table')
   );
 var
   options : tsymtableoptions;
@@ -1182,7 +1183,10 @@ const
          (mask:pi_has_inherited;
          str:' subroutine contains inherited call '),
          (mask:pi_has_nested_exit;
-         str:' subroutine contains a nested subroutine which calls the exit of the current one ')
+         str:' subroutine contains a nested subroutine which calls the exit of the current one '),
+         (mask:pi_has_stack_allocs;
+         str:' allocates memory on stack, so stack may be unbalanced on exit ')
+         
   );
 var
   procinfooptions : tprocinfoflags;
@@ -1310,6 +1314,10 @@ type
     mask : tdefstate;
     str  : string[30];
   end;
+  tgenconstrflag=record
+    mask : tgenericconstraintflag;
+    str  : string[30];
+  end;
   ptoken=^ttoken;
   pmsgstate =^tmsgstate;
 const
@@ -1329,6 +1337,11 @@ const
      (mask:ds_dwarf_dbg_info_used;   str:'Dwarf DbgInfo Used'),
      (mask:ds_dwarf_dbg_info_written;str:'Dwarf DbgInfo Written')
   );
+  genconstrflag : array[1..ord(high(tgenericconstraintflag))] of tgenconstrflag=(
+     (mask:gcf_constructor; str:'Constructor'),
+     (mask:gcf_class;       str:'Class'),
+     (mask:gcf_record;      str:'Record')
+  );
 var
   defstates  : tdefstates;
   i, nb{, msgvalue}, mesgnb : longint;
@@ -1342,6 +1355,7 @@ var
   len : sizeint;
   wstring : widestring;
   astring : ansistring;
+  genconstr : tgenericconstraintflags;
 
   function readtoken: ttoken;
     var
@@ -1464,6 +1478,40 @@ begin
         end;
     end;
   writeln;
+
+  if df_genconstraint in defoptions then
+    begin
+      ppufile.getsmallset(genconstr);
+      write  ([space,'   GenConstraints : ']);
+      if genconstr<>[] then
+        begin
+          first:=true;
+          for i:=1 to high(genconstrflag) do
+           if (genconstrflag[i].mask in genconstr) then
+            begin
+              if first then
+                first:=false
+              else
+                write(', ');
+              write(genconstrflag[i].str);
+            end;
+        end;
+      writeln;
+
+      len:=ppufile.getasizeint;
+      if len>0 then
+        begin
+          space:='    '+space;
+          writeln([space,'------ constraint defs begin ------']);
+          for i:=0 to len-1 do
+            begin
+              writeln([space,'------ constraint def ',i,' ------']);
+              readderef(space);
+            end;
+          writeln([space,'------ constraint defs end ------']);
+          delete(space,1,4);
+        end;
+    end;
 
   if df_generic in defoptions then
     begin
@@ -1678,7 +1726,8 @@ const
      (mask:po_java_nonvirtual; str: 'Java non-virtual method'),
      (mask:po_ignore_for_overload_resolution;str: 'Ignored for overload resolution'),
      (mask:po_rtlproc;         str: 'RTL procedure'),
-     (mask:po_auto_raised_visibility; str: 'Visibility raised by compiler')
+     (mask:po_auto_raised_visibility; str: 'Visibility raised by compiler'),
+     (mask:po_far;             str: 'Far')
   );
 var
   proctypeoption  : tproctypeoption;
@@ -1720,6 +1769,8 @@ begin
      if po_overridingmethod in procoptions then Include(ProcDef.Options, poOverriding);
      if po_overload in procoptions then Include(ProcDef.Options, poOverload);
      if po_inline in procoptions then Include(ProcDef.Options, poInline);
+     if (po_methodpointer in procoptions) and (ProcDef.DefType = dtProcType) then
+       TPpuProcTypeDef(ProcDef).MethodPtr:=True;
 
      write([space,'          Options : ']);
      first:=true;
@@ -2543,7 +2594,24 @@ begin
              readcommondef('Pointer definition',defoptions,def);
              write  ([space,'     Pointed Type : ']);
              readderef('',TPpuPointerDef(def).Ptr);
-             writeln([space,'           Is Far : ',(getbyte<>0)]);
+             if tsystemcpu(ppufile.header.cpu) in [cpu_i8086,cpu_i386,cpu_x86_64] then
+               begin
+                 write([space,' X86 Pointer Type : ']);
+                 b:=getbyte;
+                 case tx86pointertyp(b) of
+                   x86pt_near: writeln('Near');
+                   x86pt_near_cs: writeln('Near ''CS''');
+                   x86pt_near_ds: writeln('Near ''DS''');
+                   x86pt_near_ss: writeln('Near ''SS''');
+                   x86pt_near_es: writeln('Near ''ES''');
+                   x86pt_near_fs: writeln('Near ''FS''');
+                   x86pt_near_gs: writeln('Near ''GS''');
+                   x86pt_far: writeln('Far');
+                   x86pt_huge: writeln('Huge');
+                   else
+                     WriteWarning('Invalid x86 pointer type: ' + IntToStr(b));
+                 end;
+               end;
              writeln([space,' Has Pointer Math : ',(getbyte<>0)]);
            end;
 
@@ -2734,8 +2802,8 @@ begin
              readderef('',arrdef.ElType);
              write  ([space,'       Range Type : ']);
              readderef('',arrdef.RangeType);
-             arrdef.RangeLow:=getaint;
-             arrdef.RangeHigh:=getaint;
+             arrdef.RangeLow:=getasizeint;
+             arrdef.RangeHigh:=getasizeint;
              writeln([space,'            Range : ',arrdef.RangeLow,' to ',arrdef.RangeHigh]);
              write  ([space,'          Options : ']);
              readarraydefoptions(arrdef);
@@ -2876,18 +2944,18 @@ begin
 
          ibrecorddef :
            begin
-             def:=TPpuRecordDef.Create(ParentDef);
-             readcommondef('Record definition',defoptions, def);
+             objdef:=TPpuRecordDef.Create(ParentDef);
+             readcommondef('Record definition',defoptions, objdef);
              def.Name:=getstring;
-             writeln([space,'   Name of Record : ',def.Name]);
+             writeln([space,'   Name of Record : ',objdef.Name]);
              writeln([space,'   Import lib/pkg : ',getstring]);
              write  ([space,'          Options : ']);
-             readobjectdefoptions(TPpuRecordDef(def));
+             readobjectdefoptions(objdef);
              if (df_copied_def in defoptions) then
                begin
                  Include(TPpuRecordDef(def).Options, ooCopied);
                  write([space,'      Copied from : ']);
-                 readderef('',TPpuRecordDef(def).Ancestor);
+                 readderef('',objdef.Ancestor);
                end
              else
                begin
@@ -2895,7 +2963,8 @@ begin
                  writeln([space,'      RecordAlign : ',shortint(getbyte)]);
                  writeln([space,'         PadAlign : ',shortint(getbyte)]);
                  writeln([space,'UseFieldAlignment : ',shortint(getbyte)]);
-                 writeln([space,'         DataSize : ',getasizeint]);
+                 objdef.Size:=getasizeint;
+                 writeln([space,'         DataSize : ',objdef.Size]);
                  writeln([space,'      PaddingSize : ',getword]);
                end;
              if not EndOfEntry then
@@ -2947,7 +3016,8 @@ begin
                  objdef.ObjType:=otHelper;
              end;
              writeln([space,'    External name : ',getstring]);
-             writeln([space,'         DataSize : ',getasizeint]);
+             objdef.Size:=getasizeint;
+             writeln([space,'         DataSize : ',objdef.Size]);
              writeln([space,'      PaddingSize : ',getword]);
              writeln([space,'       FieldAlign : ',shortint(getbyte)]);
              writeln([space,'      RecordAlign : ',shortint(getbyte)]);

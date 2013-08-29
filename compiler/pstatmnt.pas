@@ -1187,7 +1187,11 @@ implementation
                 code:=cnodeutils.call_fail_node;
              end;
            _ASM :
-             code:=_asm_statement;
+             begin
+               if parse_generic then
+                 Message(parser_e_no_assembler_in_generic);
+               code:=_asm_statement;
+             end;
            _EOF :
              Message(scan_f_end_of_file);
          else
@@ -1291,8 +1295,14 @@ implementation
                     not(is_void(p.resultdef)) and
                     { can be nil in case there was an error in the expression }
                     assigned(tcallnode(p).procdefinition) and
-                    not((tcallnode(p).procdefinition.proctypeoption=potype_constructor) and
-                        is_object(tprocdef(tcallnode(p).procdefinition).struct)) then
+                    { allow constructor calls to drop the result if they are
+                      called as instance methods instead of class methods }
+                    not(
+                      (tcallnode(p).procdefinition.proctypeoption=potype_constructor) and
+                      is_class_or_object(tprocdef(tcallnode(p).procdefinition).struct) and
+                      assigned(tcallnode(p).methodpointer) and
+                      (tnode(tcallnode(p).methodpointer).resultdef.typ=objectdef)
+                    ) then
                    Message(parser_e_illegal_expression);
                end;
              code:=p;
@@ -1365,6 +1375,9 @@ implementation
 {$endif arm}
         srsym : tsym;
       begin
+         if parse_generic then
+           message(parser_e_no_assembler_in_generic);
+
          { Rename the funcret so that recursive calls are possible }
          if not is_void(current_procinfo.procdef.returndef) then
            begin

@@ -5,7 +5,7 @@ program fpmake;
 uses fpmkunit;
 {$endif ALLPACKAGES}
 
-procedure add_fcl_db;
+procedure add_fcl_db(const ADirectory: string);
 
 const
   ParadoxOSes         = [beos,haiku,linux,freebsd,netbsd,openbsd,win32];
@@ -32,11 +32,9 @@ begin
     P.Email := '';
     P.Description := 'Database library of Free Component Libraries(FCL), FPC''s OOP library.';
     P.NeedLibC:= false;
-    P.OSes:=AllOSes-[embedded];
+    P.OSes:=AllOSes-[embedded,msdos];
 
-{$ifdef ALLPACKAGES}
-    P.Directory:='fcl-db';
-{$endif ALLPACKAGES}
+    P.Directory:=ADirectory;
     P.Version:='2.7.1';
     P.SourcePath.Add('src');
     P.SourcePath.Add('src/base');
@@ -774,7 +772,7 @@ end;
 
 {$ifndef ALLPACKAGES}
 begin
-  add_fcl_db;
+  add_fcl_db('');
   Installer.Run;
 end.
 {$endif ALLPACKAGES}

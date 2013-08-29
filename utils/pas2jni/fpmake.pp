@@ -5,7 +5,7 @@ program fpmake;
 uses fpmkunit;
 {$endif ALLPACKAGES}
 
-procedure add_pas2jni;
+procedure add_pas2jni(const ADirectory: string);
 
 Var
   P : TPackage;
@@ -23,11 +23,11 @@ begin
     P.Email := '';
     P.NeedLibC:= false;
 
-{$ifdef ALLPACKAGES}
-    P.Directory:='pas2jni';
-{$endif ALLPACKAGES}
+    P.Directory:=ADirectory;
     P.Version:='2.7.1';
     P.Dependencies.Add('fcl-base');
+    P.Dependencies.Add('fcl-process');
+    P.Dependencies.Add('fcl-json');
 
     T:=P.Targets.AddImplicitUnit('def.pas');
     T.Install := false;
@@ -36,13 +36,12 @@ begin
     T:=P.Targets.AddImplicitUnit('writer.pas');
     T.Install := false;
     T:=P.Targets.AddProgram('pas2jni.pas');
-    T.Install := false;
     end;
 end;
 
 {$ifndef ALLPACKAGES}
 begin
-  add_pas2jni;
+  add_pas2jni('');
   Installer.Run;
 end.
 {$endif ALLPACKAGES}

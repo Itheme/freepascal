@@ -38,6 +38,7 @@ interface
        public
           resultrealdef : tdef;
           constructor create(tt : tnodetype;l,r : tnode);override;
+          constructor create_internal(tt:tnodetype;l,r:tnode);
           constructor ppuload(t:tnodetype;ppufile:tcompilerppufile);override;
           procedure ppuwrite(ppufile:tcompilerppufile);override;
           procedure buildderefimpl;override;
@@ -150,6 +151,13 @@ implementation
     constructor taddnode.create(tt : tnodetype;l,r : tnode);
       begin
          inherited create(tt,l,r);
+      end;
+
+
+    constructor taddnode.create_internal(tt:tnodetype;l,r:tnode);
+      begin
+        create(tt,l,r);
+        include(flags,nf_internal);
       end;
 
 
@@ -748,7 +756,7 @@ implementation
              case nodetype of
                 addn :
                   begin
-                    t:=cstringconstnode.createpchar(concatansistrings(s1,s2,l1,l2),l1+l2);
+                    t:=cstringconstnode.createpchar(concatansistrings(s1,s2,l1,l2),l1+l2,nil);
                     typecheckpass(t);
                     tstringconstnode(t).changestringtype(resultdef);
                   end;
@@ -1618,17 +1626,28 @@ implementation
                     { a voidpointer of 8 bytes). A conversion to voidpointer would be  }
                     { optimized away, since the result already was a voidpointer, so   }
                     { use a charpointer instead (JM)                                   }
-{$ifndef jvm}
-                    inserttypeconv_internal(left,charpointertype);
-                    inserttypeconv_internal(right,charpointertype);
-{$else jvm}
+{$if defined(jvm)}
                     inserttypeconv_internal(left,java_jlobject);
                     inserttypeconv_internal(right,java_jlobject);
+{$elseif defined(i8086)}
+                    { we don't have a charfarpointertype yet, so for far pointers we use bytefarpointertype }
+                    if is_farpointer(left.resultdef) then
+                      inserttypeconv_internal(left,bytefarpointertype)
+                    else
+                      inserttypeconv_internal(left,charpointertype);
+                    if is_farpointer(right.resultdef) then
+                      inserttypeconv_internal(right,bytefarpointertype)
+                    else
+                      inserttypeconv_internal(right,charpointertype);
+{$else}
+                    inserttypeconv_internal(left,charpointertype);
+                    inserttypeconv_internal(right,charpointertype);
 {$endif jvm}
                  end;
                ltn,lten,gtn,gten:
                  begin
-                    if (cs_extsyntax in current_settings.moduleswitches) then
+                    if (cs_extsyntax in current_settings.moduleswitches) or
+                       (nf_internal in flags) then
                      begin
                        if is_voidpointer(right.resultdef) then
                         inserttypeconv(right,left.resultdef)

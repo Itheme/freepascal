@@ -14,10 +14,10 @@ begin
 
     P:=AddPackage('pasjpeg');
 {$ifdef ALLPACKAGES}
-    P.Directory:='pasjpeg';
+    P.Directory:=ADirectory;
 {$endif ALLPACKAGES}
     P.Version:='2.7.1';
-    P.OSes:=P.OSes-[embedded];
+    P.OSes:=P.OSes-[embedded,msdos];
 
     P.SourcePath.Add('src');
     P.IncludePath.Add('src');

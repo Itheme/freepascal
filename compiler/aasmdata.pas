@@ -122,6 +122,7 @@ interface
     type
       TAsmList = class(tlinkedlist)
          constructor create;
+         constructor create_without_marker;
          function  empty : boolean;
          function  getlasttaifilepos : pfileposinfo;
       end;
@@ -167,8 +168,8 @@ interface
         { asmsymbol }
         function  DefineAsmSymbolByClass(symclass: TAsmSymbolClass; const s : TSymStr;_bind:TAsmSymBind;_typ:Tasmsymtype) : TAsmSymbol;
         function  DefineAsmSymbol(const s : TSymStr;_bind:TAsmSymBind;_typ:Tasmsymtype) : TAsmSymbol;
-        function  WeakRefAsmSymbol(const s : TSymStr) : TAsmSymbol;
-        function  RefAsmSymbol(const s : TSymStr) : TAsmSymbol;
+        function  WeakRefAsmSymbol(const s : TSymStr;_typ:Tasmsymtype=AT_NONE) : TAsmSymbol;
+        function  RefAsmSymbol(const s : TSymStr;_typ:Tasmsymtype=AT_NONE) : TAsmSymbol;
         function  GetAsmSymbol(const s : TSymStr) : TAsmSymbol;
         { create new assembler label }
         procedure getlabel(out l : TAsmLabel;alt:TAsmLabeltype);
@@ -288,6 +289,10 @@ implementation
         insert(tai_marker.create(mark_BlockStart));
       end;
 
+    constructor TAsmList.create_without_marker;
+      begin
+        inherited create;
+      end;
 
     function TAsmList.empty : boolean;
       begin
@@ -436,22 +441,22 @@ implementation
       end;
 
 
-    function TAsmData.RefAsmSymbol(const s : TSymStr) : TAsmSymbol;
+    function TAsmData.RefAsmSymbol(const s : TSymStr;_typ:Tasmsymtype=AT_NONE) : TAsmSymbol;
       begin
         result:=TAsmSymbol(FAsmSymbolDict.Find(s));
         if not assigned(result) then
-          result:=TAsmSymbol.create(AsmSymbolDict,s,AB_EXTERNAL,AT_NONE)
+          result:=TAsmSymbol.create(AsmSymbolDict,s,AB_EXTERNAL,_typ)
         { one normal reference removes the "weak" character of a symbol }
         else if (result.bind=AB_WEAK_EXTERNAL) then
           result.bind:=AB_EXTERNAL;
       end;
 
 
-    function TAsmData.WeakRefAsmSymbol(const s : TSymStr) : TAsmSymbol;
+    function TAsmData.WeakRefAsmSymbol(const s : TSymStr;_typ:Tasmsymtype=AT_NONE) : TAsmSymbol;
       begin
         result:=TAsmSymbol(FAsmSymbolDict.Find(s));
         if not assigned(result) then
-          result:=TAsmSymbol.create(AsmSymbolDict,s,AB_WEAK_EXTERNAL,AT_NONE);
+          result:=TAsmSymbol.create(AsmSymbolDict,s,AB_WEAK_EXTERNAL,_typ);
       end;
 
 

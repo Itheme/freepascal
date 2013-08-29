@@ -293,6 +293,16 @@ unit cgcpu;
 
 
     procedure tcg386.g_proc_exit(list : TAsmList;parasize:longint;nostackframe:boolean);
+
+      procedure increase_fp(a : tcgint);
+        var
+          href : treference;
+        begin
+          reference_reset_base(href,current_procinfo.framepointer,a,0);
+          { normally, lea is a better choice than an add }
+          list.concat(Taicpu.op_ref_reg(A_LEA,TCGSize2OpSize[OS_ADDR],href,current_procinfo.framepointer));
+        end;
+
       var
         stacksize : longint;
       begin
@@ -304,7 +314,7 @@ unit cgcpu;
         { remove stackframe }
         if not nostackframe then
           begin
-            if (current_procinfo.framepointer=NR_STACK_POINTER_REG) then
+            if current_procinfo.framepointer=NR_STACK_POINTER_REG then
               begin
                 stacksize:=current_procinfo.calc_stackframe_size;
                 if (target_info.stackalign>4) and
@@ -314,11 +324,17 @@ unit cgcpu;
                     { if you (think you) know what you are doing              }
                     (po_assembler in current_procinfo.procdef.procoptions)) then
                   stacksize := align(stacksize+sizeof(aint),target_info.stackalign) - sizeof(aint);
-                if (stacksize<>0) then
-                  cg.a_op_const_reg(list,OP_ADD,OS_ADDR,stacksize,current_procinfo.framepointer);
+                if stacksize<>0 then
+                  increase_fp(stacksize);
+                if (not paramanager.use_fixed_stack) then
+                  internal_restore_regs(list,true);
               end
             else
-              list.concat(Taicpu.op_none(A_LEAVE,S_NO));
+              begin
+                if (not paramanager.use_fixed_stack) then
+                  internal_restore_regs(list,not (pi_has_stack_allocs in current_procinfo.flags));
+                list.concat(Taicpu.op_none(A_LEAVE,S_NO));
+              end;
             list.concat(tai_regalloc.dealloc(current_procinfo.framepointer,nil));
           end;
 
@@ -482,6 +498,7 @@ unit cgcpu;
         { patch the new address, but don't use a_load_reg_reg, that will add a move instruction
           that can confuse the reg allocator }
         list.concat(Taicpu.Op_reg_reg(A_MOV,S_L,NR_ESP,destreg));
+        include(current_procinfo.flags,pi_has_stack_allocs);
       end;
 
 

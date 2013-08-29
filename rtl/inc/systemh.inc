@@ -131,6 +131,28 @@ Type
   {$ifndef FPUNONE}
     ValReal = Extended;
   {$endif}
+
+  {$if defined(FPC_MM_TINY)}
+    {$define FPC_X86_CODE_NEAR}
+    {$define FPC_X86_DATA_NEAR}
+  {$elseif defined(FPC_MM_SMALL)}
+    {$define FPC_X86_CODE_NEAR}
+    {$define FPC_X86_DATA_NEAR}
+  {$elseif defined(FPC_MM_MEDIUM)}
+    {$define FPC_X86_CODE_FAR}
+    {$define FPC_X86_DATA_NEAR}
+  {$elseif defined(FPC_MM_COMPACT)}
+    {$define FPC_X86_CODE_NEAR}
+    {$define FPC_X86_DATA_FAR}
+  {$elseif defined(FPC_MM_LARGE)}
+    {$define FPC_X86_CODE_FAR}
+    {$define FPC_X86_DATA_FAR}
+  {$elseif defined(FPC_MM_HUGE)}
+    {$define FPC_X86_CODE_FAR}
+    {$define FPC_X86_DATA_HUGE}
+  {$else}
+    {$fatal No memory model defined}
+  {$endif}
 {$endif CPUI8086}
 
 {$ifdef CPUX86_64}
@@ -294,6 +316,11 @@ Type
   PtrUInt = QWord;
   ValSInt = int64;
   ValUInt = qword;
+  NativeInt  = PtrInt;
+  NativeUint = PtrUint;
+  CodePointer = Pointer;
+  CodePtrInt = PtrInt;
+  CodePtrUInt = PtrUInt;
 {$endif CPU64}
 
 {$ifdef CPU32}
@@ -303,19 +330,41 @@ Type
   PtrUInt = DWord;
   ValSInt = Longint;
   ValUInt = Cardinal;
+  NativeInt  = PtrInt;
+  NativeUint = PtrUint;
+  CodePointer = Pointer;
+  CodePtrInt = PtrInt;
+  CodePtrUInt = PtrUInt;
 {$endif CPU32}
 
 {$ifdef CPU16}
   SizeInt = Integer;
   SizeUInt = Word;
-  PtrInt = Integer;
-  PtrUInt = Word;
+  {$if defined(FPC_X86_DATA_FAR) or defined(FPC_X86_DATA_HUGE)}
+    PtrInt = Longint;
+    PtrUInt = DWord;
+  {$else}
+    PtrInt = Integer;
+    PtrUInt = Word;
+  {$endif}
+  {$if defined(FPC_X86_CODE_FAR)}
+    CodePointer = FarPointer;
+    CodePtrInt = Longint;
+    CodePtrUInt = DWord;
+  {$elseif defined(FPC_X86_CODE_NEAR)}
+    CodePointer = NearPointer;
+    CodePtrInt = Integer;
+    CodePtrUInt = Word;
+  {$else}
+    CodePointer = Pointer;
+    CodePtrInt = PtrInt;
+    CodePtrUInt = PtrUInt;
+  {$endif}
   ValSInt = Integer;
   ValUInt = Word;
+  NativeInt  = Integer;
+  NativeUint = Word;
 {$endif CPU16}
-
-  NativeInt  = PtrInt;
-  NativeUint = PtrUint;
 
   Int8    = ShortInt;
   Int16   = SmallInt;
@@ -413,9 +462,23 @@ type
   PPointer            = ^Pointer;
   PPPointer           = ^PPointer;
 
+  PCodePointer        = ^CodePointer;
+  PPCodePointer       = ^PCodePointer;
+
   PBoolean            = ^Boolean;
   PWordBool           = ^WordBool;
   PLongBool           = ^LongBool;
+
+  PNativeInt 	      = PPtrInt;
+  PNativeUInt	      = PPtrUint;
+  pInt8   	      = PShortInt;
+  pInt16  	      = PSmallint;
+  pInt32  	      = PLongint;
+  PIntPtr 	      = PPtrInt;
+  pUInt8  	      = PByte;
+  pUInt16 	      = PWord;
+  pUInt32 	      = PDWord;
+  PUintPtr	      = PPtrUInt;
 
   PShortString        = ^ShortString;
   PAnsiString         = ^AnsiString;
@@ -510,12 +573,14 @@ const
   Test8087 : byte = 3;
   { will be detected at startup }
   has_sse_support : boolean = false;
+  has_sse2_support : boolean = false;
+  has_sse3_support : boolean = false;
   has_mmx_support : boolean = false;
 {$endif cpui386}
 {$ifdef cpui8086}
   { will be detected at startup }
-  { 0=8086, 1=80286, 2=80386 }
-  Test8086 : byte = 0;
+  { 0=8086/8088/80186/80188/NEC V20/NEC V30, 1=80286, 2=80386 or newer }
+  Test8086 : byte = 0; public name '__Test8086';
   { Always 387 or newer. Emulated if needed. }
   Test8087 : byte = 3;
   { will be detected at startup }
@@ -531,7 +596,7 @@ const
   Max_Frame_Dump : Word = 8;
 
 { Exit Procedure handling consts and types  }
-  ExitProc : pointer = nil;
+  ExitProc : codepointer = nil;
   Erroraddr: pointer = nil;
   Errorcode: Word    = 0;
 
@@ -552,7 +617,7 @@ const
   ThreadingAlreadyUsed : boolean = FALSE;
   { Indicates if there was an error }
   StackError : boolean = FALSE;
-  InitProc : Pointer = nil;
+  InitProc : CodePointer = nil;
   { compatibility }
   ModuleIsLib : Boolean = FALSE;
   ModuleIsPackage : Boolean = FALSE;
@@ -808,10 +873,10 @@ function RolQWord(Const AValue : QWord;const Dist : Byte): QWord;{$ifdef SYSTEMI
 
 {$ifdef FPC_HAS_INTERNAL_SAR}
 
-{$if defined(cpux86_64) or defined(cpui386)}
+{$if defined(cpux86_64) or defined(cpui386) or defined(mips) or defined(mipsel)}
 {$define FPC_HAS_INTERNAL_SAR_BYTE}
 {$define FPC_HAS_INTERNAL_SAR_WORD}
-{$endif defined(cpux86_64) or defined(cpui386)}
+{$endif defined(cpux86_64) or defined(cpui386) or defined(mips) or defined(mipsel)}
 
 { currently, all supported CPUs have an internal 32 bit sar implementation }
 { $if defined(cpux86_64) or defined(cpui386) or defined(arm) or defined(powerpc) or defined(powerpc64) or defined(mips) or defined(mipsel)}
@@ -1217,7 +1282,7 @@ Function  Paramcount:Longint;
 Function  ParamStr(l:Longint):string;
 {$endif FPC_HAS_FEATURE_COMMANDARGS}
 
-Procedure Dump_Stack(var f : text;bp:pointer;addr : pointer = nil);
+Procedure Dump_Stack(var f : text;fp:pointer;addr : pointer = nil);
 {$ifdef FPC_HAS_FEATURE_EXCEPTIONS}
 procedure DumpExceptionBackTrace(var f:text);
 {$endif FPC_HAS_FEATURE_EXCEPTIONS}

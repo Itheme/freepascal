@@ -1476,6 +1476,9 @@ implementation
          { loop unrolling }
          if cs_opt_loopunroll in current_settings.optimizerswitches then
            begin
+             res:=t2.simplify(false);
+             if assigned(res) then
+               t2:=res;
              res:=unroll_loop(self);
              if assigned(res) then
                begin
@@ -1874,6 +1877,8 @@ implementation
         if assigned(left) then
           firstpass(left);
         if (m_non_local_goto in current_settings.modeswitches) and
+            { the owner can be Nil for internal labels }
+            assigned(labsym.owner) and
           (current_procinfo.procdef.parast.symtablelevel<>labsym.owner.symtablelevel) then
           CGMessage(cg_e_labels_cannot_defined_outside_declaration_scope)
       end;

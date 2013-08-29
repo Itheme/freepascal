@@ -15,17 +15,12 @@
 {$H+}
 
 
-{$IFDEF VER2_0}
-// Sanity check
-{$UNDEF FPC_TESTGENERICS}
-{$ENDIF}
-
 {$ifdef CLASSESINLINE}{$inline on}{$endif}
 
 
 type
    { extra types to compile with FPC }
-   HRSRC =  TFPResourceHandle {$ifndef ver2_2} deprecated {$endif};
+   HRSRC =  TFPResourceHandle deprecated;
    TComponentName = string;
    THandle = System.THandle;
 
@@ -46,7 +41,11 @@ const
 
 { Maximum TList size }
 
+{$ifdef cpu16}
+  MaxListSize = {Maxint div 16}1024;
+{$else cpu16}
   MaxListSize = Maxint div 16;
+{$endif cpu16}
 
 { values for TShortCut }
 
@@ -377,7 +376,11 @@ const
    BITSHIFT = 5;
    MASK = 31; {for longs that are 32-bit in size}
    // to further increase, signed integer limits have to be researched.
+{$ifdef cpu16}
+   MaxBitFlags = $7FE0;
+{$else cpu16}
    MaxBitFlags = $7FFFFFE0;
+{$endif cpu16}
    MaxBitRec = MaxBitFlags Div (SizeOf(cardinal)*8);
 type
    TBitArray = array[0..MaxBitRec - 1] of cardinal;
@@ -624,6 +627,7 @@ type
     procedure SetQuoteChar(c:Char);
     procedure SetNameValueSeparator(c:Char);
     procedure WriteData(Writer: TWriter);
+    procedure DoSetTextStr(const Value: string; DoClear : Boolean);
   protected
     procedure DefineProperties(Filer: TFiler); override;
     procedure Error(const Msg: string; Data: Integer);
@@ -652,6 +656,7 @@ type
     procedure Append(const S: string);
     procedure AddStrings(TheStrings: TStrings); overload; virtual;
     procedure AddStrings(const TheStrings: array of string); overload; virtual;
+    Procedure AddText(Const S : String); virtual;
     procedure Assign(Source: TPersistent); override;
     procedure BeginUpdate;
     procedure Clear; virtual; abstract;
@@ -960,7 +965,7 @@ type
     procedure Clear;
     procedure LoadFromStream(Stream: TStream);
     procedure LoadFromFile(const FileName: string);
-    procedure SetSize({$ifdef CPU64}const{$endif CPU64} NewSize: PtrInt); override;
+    procedure SetSize({$ifdef CPU64}const NewSize: Int64{$else}NewSize: LongInt{$endif}); override;
     function Write(const Buffer; Count: LongInt): LongInt; override;
   end;
 
@@ -1180,7 +1185,7 @@ type
 
 
   TFindMethodEvent = procedure(Reader: TReader; const MethodName: string;
-    var Address: Pointer; var Error: Boolean) of object;
+    var Address: CodePointer; var Error: Boolean) of object;
   TSetMethodPropertyEvent = procedure(Reader: TReader; Instance: TPersistent;
     PropInfo: PPropInfo; const TheMethodName: string;
     var Handled: boolean) of object;
@@ -1229,7 +1234,7 @@ type
     function FindComponentClass(const AClassName: string): TComponentClass;
   protected
     function Error(const Message: string): Boolean; virtual;
-    function FindMethod(ARoot: TComponent; const AMethodName: string): Pointer; virtual;
+    function FindMethod(ARoot: TComponent; const AMethodName: string): CodePointer; virtual;
     procedure ReadProperty(AInstance: TPersistent);
     procedure ReadPropValue(Instance: TPersistent; PropInfo: Pointer);
     procedure PropertyError;

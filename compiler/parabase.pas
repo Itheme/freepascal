@@ -39,6 +39,7 @@ unit parabase;
        TCGParaLocation = record
          Next : PCGParaLocation;
          Size : TCGSize; { size of this location }
+         Def  : tdef;
          Loc  : TCGLoc;
          case TCGLoc of
            LOC_REFERENCE : (reference : TCGParaReference);
@@ -72,6 +73,8 @@ unit parabase;
              register : tregister);
        end;
 
+       { TCGPara }
+
        TCGPara = object
           Def       : tdef; { Type of the parameter }
           Location  : PCGParalocation;
@@ -88,6 +91,7 @@ unit parabase;
           procedure   check_simple_location;
           function    add_location:pcgparalocation;
           procedure   get_location(var newloc:tlocation);
+          function    locations_count:integer;
 
           procedure   buildderef;
           procedure   deref;
@@ -165,15 +169,16 @@ implementation
 
     function tcgpara.getcopy:tcgpara;
       var
-        hlocation : pcgparalocation;
+        srcloc,hlocation : pcgparalocation;
       begin
         result.init;
-        while assigned(location) do
+        srcloc:=location;
+        while assigned(srcloc) do
           begin
             hlocation:=result.add_location;
-            hlocation^:=location^;
+            hlocation^:=srcloc^;
             hlocation^.next:=nil;
-            location:=location^.next;
+            srcloc:=srcloc^.next;
           end;
         result.alignment:=alignment;
         result.size:=size;
@@ -254,6 +259,20 @@ implementation
               newloc.reference.alignment:=alignment;
             end;
         end;
+      end;
+
+
+    function TCGPara.locations_count: integer;
+      var
+        hlocation: pcgparalocation;
+      begin
+        result:=0;
+        hlocation:=location;
+        while assigned(hlocation) do
+          begin
+            inc(result);
+            hlocation:=hlocation^.next;
+          end;
       end;
 
 

@@ -6,8 +6,8 @@ A closed BufDataset normally has no data, so these tests won't work.
 
 To circumvent this, this unit saves the dataset contents to file and reloads them on opening
 using the BufDataset persistence mechanism.
-
 }
+
 {$mode objfpc}{$H+}
 
 interface
@@ -18,7 +18,6 @@ uses
   BufDataset;
 
 type
-{ TbufdatasetConnector }
 
   { TbufdatasetDBConnector }
 
@@ -152,6 +151,7 @@ begin
       FieldByName('FSTRING').AsString := testStringValues[i];
       FieldByName('FSMALLINT').AsInteger := testSmallIntValues[i];
       FieldByName('FINTEGER').AsInteger := testIntValues[i];
+      FieldByName('FWORD').AsInteger := testWordValues[i];
       FieldByName('FBOOLEAN').AsBoolean := testBooleanValues[i];
       FieldByName('FFLOAT').AsFloat := testFloatValues[i];
       FieldByName('FCURRENCY').AsCurrency := testCurrencyValues[i];

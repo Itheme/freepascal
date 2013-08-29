@@ -121,9 +121,11 @@ interface
           value_str : pchar;
           len     : longint;
           lab_str : tasmlabel;
+          astringdef : tdef;
+          astringdefderef : tderef;
           cst_type : tconststringtype;
           constructor createstr(const s : string);virtual;
-          constructor createpchar(s : pchar;l : longint);virtual;
+          constructor createpchar(s: pchar; l: longint; def: tdef);virtual;
           constructor createunistr(w : pcompilerwidestring);virtual;
           constructor ppuload(t:tnodetype;ppufile:tcompilerppufile);override;
           procedure ppuwrite(ppufile:tcompilerppufile);override;
@@ -309,7 +311,7 @@ implementation
               getmem(pc,len+1);
               move(pchar(p.value.valueptr)^,pc^,len);
               pc[len]:=#0;
-              p1:=cstringconstnode.createpchar(pc,len);
+              p1:=cstringconstnode.createpchar(pc,len,p.constdef);
             end;
           constwstring :
             p1:=cstringconstnode.createunistr(pcompilerwidestring(p.value.valueptr));
@@ -724,6 +726,11 @@ implementation
 
       begin
          inherited create(pointerconstn);
+{$ifdef i8086}
+         { truncate near pointers }
+         if (def.typ<>pointerdef) or not (tpointerdef(def).x86pointertyp in [x86pt_far,x86pt_huge]) then
+           v := Word(v);
+{$endif i8086}
          value:=v;
          typedef:=def;
       end;
@@ -822,12 +829,19 @@ implementation
       end;
 
 
-    constructor tstringconstnode.createpchar(s : pchar;l : longint);
+    constructor tstringconstnode.createpchar(s: pchar; l: longint; def: tdef);
       begin
          inherited create(stringconstn);
          len:=l;
          value_str:=s;
-         cst_type:=cst_conststring;
+         if assigned(def) and
+            is_ansistring(def) then
+           begin
+             cst_type:=cst_ansistring;
+             astringdef:=def;
+           end
+         else
+           cst_type:=cst_conststring;
          lab_str:=nil;
       end;
 
@@ -875,6 +889,8 @@ implementation
             value_str[len]:=#0;
           end;
         lab_str:=tasmlabel(ppufile.getasmsymbol);
+        if cst_type=cst_ansistring then
+          ppufile.getderef(astringdefderef);
       end;
 
 
@@ -888,18 +904,24 @@ implementation
         else
           ppufile.putdata(value_str^,len);
         ppufile.putasmsymbol(lab_str);
+        if cst_type=cst_ansistring then
+          ppufile.putderef(astringdefderef);
       end;
 
 
     procedure tstringconstnode.buildderefimpl;
       begin
         inherited buildderefimpl;
+        if cst_type=cst_ansistring then
+          astringdefderef.build(astringdef);
       end;
 
 
     procedure tstringconstnode.derefimpl;
       begin
         inherited derefimpl;
+        if cst_type=cst_ansistring then
+          astringdef:=tdef(astringdefderef.resolve);
       end;
 
 
@@ -920,6 +942,7 @@ implementation
            end
          else
            n.value_str:=getpcharcopy;
+         n.astringdef:=astringdef;
          dogetcopy:=n;
       end;
 
@@ -943,7 +966,10 @@ implementation
           cst_shortstring :
             resultdef:=cshortstringtype;
           cst_ansistring :
-            resultdef:=getansistringdef;
+            if not assigned(astringdef) then
+              resultdef:=getansistringdef
+            else
+              resultdef:=astringdef;
           cst_unicodestring :
             resultdef:=cunicodestringtype;
           cst_widestring :

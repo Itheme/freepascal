@@ -61,7 +61,6 @@ interface
 //    procedure remove_non_regvars_from_loc(const t: tlocation; var regs:Tsuperregisterset);
 
     procedure location_force_fpureg(list:TAsmList;var l: tlocation;maybeconst:boolean);
-    procedure location_force_mmregscalar(list:TAsmList;var l: tlocation;maybeconst:boolean);
     procedure location_force_mmreg(list:TAsmList;var l: tlocation;maybeconst:boolean);
     procedure location_allocate_register(list:TAsmList;out l: tlocation;def: tdef;constant: boolean);
 
@@ -78,7 +77,6 @@ interface
 
     function  has_alias_name(pd:tprocdef;const s:string):boolean;
     procedure alloc_proc_symbol(pd: tprocdef);
-    procedure gen_proc_symbol(list:TAsmList);
     procedure gen_proc_entry_code(list:TAsmList);
     procedure gen_proc_exit_code(list:TAsmList);
     procedure gen_stack_check_size_para(list:TAsmList);
@@ -313,7 +311,7 @@ implementation
 {$ifdef cpu64bitalu}
                          if opsize in [OS_128,OS_S128] then
                            begin
-                             hlcg.location_force_reg(list,p.location,p.resultdef,hlcg.tcgsize2orddef(opsize),true);
+                             hlcg.location_force_reg(list,p.location,p.resultdef,cgsize_orddef(opsize),true);
                              tmpreg:=cg.getintregister(list,OS_64);
                              cg.a_op_reg_reg_reg(list,OP_OR,OS_64,p.location.register128.reglo,p.location.register128.reghi,tmpreg);
                              location_reset(p.location,LOC_REGISTER,OS_64);
@@ -323,7 +321,7 @@ implementation
 {$else cpu64bitalu}
                          if opsize in [OS_64,OS_S64] then
                            begin
-                             hlcg.location_force_reg(list,p.location,p.resultdef,hlcg.tcgsize2orddef(opsize),true);
+                             hlcg.location_force_reg(list,p.location,p.resultdef,cgsize_orddef(opsize),true);
                              tmpreg:=cg.getintregister(list,OS_32);
                              cg.a_op_reg_reg_reg(list,OP_OR,OS_32,p.location.register64.reglo,p.location.register64.reghi,tmpreg);
                              location_reset(p.location,LOC_REGISTER,OS_32);
@@ -512,54 +510,6 @@ implementation
       end;
 
 
-    procedure location_force_mmregscalar(list:TAsmList;var l: tlocation;maybeconst:boolean);
-      var
-        reg : tregister;
-        href : treference;
-        newsize : tcgsize;
-      begin
-        if (l.loc<>LOC_MMREGISTER)  and
-           ((l.loc<>LOC_CMMREGISTER) or (not maybeconst)) then
-          begin
-            { if it's in an fpu register, store to memory first }
-            if (l.loc in [LOC_FPUREGISTER,LOC_CFPUREGISTER]) then
-              begin
-                tg.GetTemp(list,tcgsize2size[l.size],tcgsize2size[l.size],tt_normal,href);
-                cg.a_loadfpu_reg_ref(list,l.size,l.size,l.register,href);
-                location_reset_ref(l,LOC_REFERENCE,l.size,0);
-                l.reference:=href;
-              end;
-{$ifndef cpu64bitalu}
-            if (l.loc in [LOC_REGISTER,LOC_CREGISTER]) and
-               (l.size in [OS_64,OS_S64]) then
-              begin
-                reg:=cg.getmmregister(list,OS_F64);
-                cg64.a_loadmm_intreg64_reg(list,OS_F64,l.register64,reg);
-                l.size:=OS_F64
-              end
-            else
-{$endif not cpu64bitalu}
-              begin
-                 { on ARM, CFP values may be located in integer registers,
-                   and its second_int_to_real() also uses this routine to
-                   force integer (memory) values in an mmregister }
-                 if (l.size in [OS_32,OS_S32]) then
-                   newsize:=OS_F32
-                 else if (l.size in [OS_64,OS_S64]) then
-                   newsize:=OS_F64
-                 else
-                   newsize:=l.size;
-                 reg:=cg.getmmregister(list,newsize);
-                 hlcg.a_loadmm_loc_reg(list,l.size,newsize,l,reg,mms_movescalar);
-                 l.size:=newsize;
-               end;
-            location_freetemp(list,l);
-            location_reset(l,LOC_MMREGISTER,l.size);
-            l.register:=reg;
-          end;
-      end;
-
-
     procedure register_maybe_adjust_setbase(list: TAsmList; var l: tlocation; setbase: aint);
       var
         tmpreg: tregister;
@@ -594,7 +544,7 @@ implementation
            ((l.loc<>LOC_CMMREGISTER) or (not maybeconst)) then
           begin
             reg:=cg.getmmregister(list,OS_VECTOR);
-            hlcg.a_loadmm_loc_reg(list,l.size,OS_VECTOR,l,reg,nil);
+            cg.a_loadmm_loc_reg(list,OS_VECTOR,l,reg,nil);
             location_freetemp(list,l);
             location_reset(l,LOC_MMREGISTER,OS_VECTOR);
             l.register:=reg;
@@ -1000,29 +950,66 @@ implementation
                   case paraloc^.loc of
                     LOC_REGISTER:
                       begin
-                        if not assigned(paraloc^.next) then
-                          internalerror(200410104);
-                        if (target_info.endian=ENDIAN_BIG) then
-                          begin
-                            { paraloc^ -> high
-                              paraloc^.next -> low }
-                            unget_para(paraloc^);
-                            gen_alloc_regloc(list,destloc);
-                            { reg->reg, alignment is irrelevant }
-                            cg.a_load_cgparaloc_anyreg(list,OS_32,paraloc^,destloc.register64.reghi,4);
-                            unget_para(paraloc^.next^);
-                            cg.a_load_cgparaloc_anyreg(list,OS_32,paraloc^.next^,destloc.register64.reglo,4);
-                          end
-                        else
-                          begin
-                            { paraloc^ -> low
-                              paraloc^.next -> high }
-                            unget_para(paraloc^);
-                            gen_alloc_regloc(list,destloc);
-                            cg.a_load_cgparaloc_anyreg(list,OS_32,paraloc^,destloc.register64.reglo,4);
-                            unget_para(paraloc^.next^);
-                            cg.a_load_cgparaloc_anyreg(list,OS_32,paraloc^.next^,destloc.register64.reghi,4);
-                          end;
+                        case para.locations_count of
+{$ifdef cpu16bitalu}
+                          { 4 paralocs? }
+                          4:
+                            if (target_info.endian=ENDIAN_BIG) then
+                              begin
+                                { paraloc^ -> high
+                                  paraloc^.next^.next -> low }
+                                unget_para(paraloc^);
+                                gen_alloc_regloc(list,destloc);
+                                { reg->reg, alignment is irrelevant }
+                                cg.a_load_cgparaloc_anyreg(list,OS_16,paraloc^,GetNextReg(destloc.register64.reghi),2);
+                                unget_para(paraloc^.next^);
+                                cg.a_load_cgparaloc_anyreg(list,OS_16,paraloc^.next^,destloc.register64.reghi,2);
+                                unget_para(paraloc^.next^.next^);
+                                cg.a_load_cgparaloc_anyreg(list,OS_16,paraloc^.next^.next^,GetNextReg(destloc.register64.reglo),2);
+                                unget_para(paraloc^.next^.next^.next^);
+                                cg.a_load_cgparaloc_anyreg(list,OS_16,paraloc^.next^.next^.next^,destloc.register64.reglo,2);
+                              end
+                            else
+                              begin
+                                { paraloc^ -> low
+                                  paraloc^.next^.next -> high }
+                                unget_para(paraloc^);
+                                gen_alloc_regloc(list,destloc);
+                                cg.a_load_cgparaloc_anyreg(list,OS_16,paraloc^,destloc.register64.reglo,2);
+                                unget_para(paraloc^.next^);
+                                cg.a_load_cgparaloc_anyreg(list,OS_16,paraloc^.next^,GetNextReg(destloc.register64.reglo),2);
+                                unget_para(paraloc^.next^.next^);
+                                cg.a_load_cgparaloc_anyreg(list,OS_16,paraloc^.next^.next^,destloc.register64.reghi,2);
+                                unget_para(paraloc^.next^.next^.next^);
+                                cg.a_load_cgparaloc_anyreg(list,OS_16,paraloc^.next^.next^.next^,GetNextReg(destloc.register64.reghi),2);
+                              end;
+{$endif cpu16bitalu}
+                          2:
+                            if (target_info.endian=ENDIAN_BIG) then
+                              begin
+                                { paraloc^ -> high
+                                  paraloc^.next -> low }
+                                unget_para(paraloc^);
+                                gen_alloc_regloc(list,destloc);
+                                { reg->reg, alignment is irrelevant }
+                                cg.a_load_cgparaloc_anyreg(list,OS_32,paraloc^,destloc.register64.reghi,4);
+                                unget_para(paraloc^.next^);
+                                cg.a_load_cgparaloc_anyreg(list,OS_32,paraloc^.next^,destloc.register64.reglo,4);
+                              end
+                            else
+                              begin
+                                { paraloc^ -> low
+                                  paraloc^.next -> high }
+                                unget_para(paraloc^);
+                                gen_alloc_regloc(list,destloc);
+                                cg.a_load_cgparaloc_anyreg(list,OS_32,paraloc^,destloc.register64.reglo,4);
+                                unget_para(paraloc^.next^);
+                                cg.a_load_cgparaloc_anyreg(list,OS_32,paraloc^.next^,destloc.register64.reghi,4);
+                              end;
+                          else
+                            { unexpected number of paralocs }
+                            internalerror(200410104);
+                        end;
                       end;
                     LOC_REFERENCE:
                       begin
@@ -1070,11 +1057,11 @@ implementation
             begin
 {$ifdef mips}
               if (destloc.size = paraloc^.Size) and
-                 (paraloc^.Loc in [LOC_FPUREGISTER,LOC_CFPUREGISTER]) then
+                 (paraloc^.Loc in [LOC_FPUREGISTER,LOC_CFPUREGISTER,LOC_REFERENCE,LOC_CREFERENCE]) then
                 begin
                   unget_para(paraloc^);
                   gen_alloc_regloc(list,destloc);
-                  cg.a_loadfpu_reg_reg(list,paraloc^.Size, destloc.size, paraloc^.register, destloc.register);
+                  cg.a_load_cgparaloc_anyreg(list,destloc.size,paraloc^,destloc.register,para.alignment);
                 end
               else if (destloc.size = OS_F32) and
                  (paraloc^.Loc in [LOC_REGISTER,LOC_CREGISTER]) then
@@ -1322,44 +1309,6 @@ implementation
             item := TCmdStrListItem(item.next);
           end;
        end;
-
-
-    procedure gen_proc_symbol(list:TAsmList);
-      var
-        item,
-        previtem : TCmdStrListItem;
-      begin
-        previtem:=nil;
-        item := TCmdStrListItem(current_procinfo.procdef.aliasnames.first);
-        while assigned(item) do
-          begin
-{$ifdef arm}
-            if current_settings.cputype in cpu_thumb2+cpu_thumb then
-              list.concat(tai_thumb_func.create);
-{$endif arm}
-            { "double link" all procedure entry symbols via .reference }
-            { directives on darwin, because otherwise the linker       }
-            { sometimes strips the procedure if only on of the symbols }
-            { is referenced                                            }
-            if assigned(previtem) and
-               (target_info.system in systems_darwin) then
-              list.concat(tai_directive.create(asd_reference,item.str));
-            if (cs_profile in current_settings.moduleswitches) or
-              (po_global in current_procinfo.procdef.procoptions) then
-              list.concat(Tai_symbol.createname_global(item.str,AT_FUNCTION,0))
-            else
-              list.concat(Tai_symbol.createname(item.str,AT_FUNCTION,0));
-            if assigned(previtem) and
-               (target_info.system in systems_darwin) then
-              list.concat(tai_directive.create(asd_reference,previtem.str));
-            if not(af_stabs_use_function_absolute_addresses in target_asm.flags) then
-              list.concat(Tai_function_name.create(item.str));
-            previtem:=item;
-            item := TCmdStrListItem(item.next);
-          end;
-        current_procinfo.procdef.procstarttai:=tai(list.last);
-      end;
-
 
 
     procedure gen_proc_entry_code(list:TAsmList);

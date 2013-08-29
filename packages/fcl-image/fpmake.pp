@@ -14,7 +14,7 @@ begin
 
     P:=AddPackage('fcl-image');
 {$ifdef ALLPACKAGES}
-    P.Directory:='fcl-image';
+    P.Directory:=ADirectory;
 {$endif ALLPACKAGES}
     P.Version:='2.7.1';
     P.Dependencies.Add('pasjpeg');
@@ -27,7 +27,7 @@ begin
     P.Email := '';
     P.Description := 'Image loading and conversion parts of Free Component Libraries (FCL), FPC''s OOP library.';
     P.NeedLibC:= false;
-    P.OSes := P.OSes - [embedded,nativent];
+    P.OSes := P.OSes - [embedded,nativent,msdos];
 
     P.SourcePath.Add('src');
     P.IncludePath.Add('src');

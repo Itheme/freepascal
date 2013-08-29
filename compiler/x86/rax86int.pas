@@ -51,6 +51,7 @@ Unit Rax86int;
          actasmtoken : tasmtoken;
          prevasmtoken : tasmtoken;
          ActOpsize : topsize;
+         inexpression : boolean;
          constructor create;override;
          function is_asmopcode(const s: string):boolean;
          function is_asmoperator(const s: string):boolean;
@@ -86,7 +87,7 @@ Unit Rax86int;
        { symtable }
        symconst,symbase,symtype,symsym,symdef,symtable,
        { parser }
-       scanner,
+       scanner,pbase,
        { register allocator }
        rabase,rautils,itx86int,
        { codegen }
@@ -128,9 +129,6 @@ Unit Rax86int;
         '','','sizeof','vmtoffset','','type','ptr','mod','shl','shr','not',
         'and','or','xor','wrt','..gotpcrel'
       );
-
-    var
-      inexpression   : boolean;
 
     constructor tx86intreader.create;
       var
@@ -2222,7 +2220,8 @@ Unit Rax86int;
       { setup label linked list }
       LocalLabelList:=TLocalLabelList.Create;
       { we might need to know which parameters are passed in registers }
-      current_procinfo.generate_parameter_info;
+      if not parse_generic then
+        current_procinfo.generate_parameter_info;
       { start tokenizer }
       c:=current_scanner.asmgetcharstart;
       gettoken;

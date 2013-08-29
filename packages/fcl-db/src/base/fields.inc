@@ -448,6 +448,12 @@ end;
 function TField.GetAsLongint: Longint;
 
 begin
+  Result:=GetAsInteger;
+end;
+
+function TField.GetAsInteger: Longint;
+
+begin
   raise AccessError(SInteger);
 end;
 
@@ -457,12 +463,6 @@ begin
   raise AccessError(SVariant);
 end;
 
-
-function TField.GetAsInteger: Integer;
-
-begin
-  Result:=GetAsLongint;
-end;
 
 function TField.GetAsString: string;
 
@@ -797,13 +797,13 @@ end;
 procedure TField.SetAsLongint(AValue: Longint);
 
 begin
-  Raise AccessError(SInteger);
+  SetAsInteger(AValue);
 end;
 
-procedure TField.SetAsInteger(AValue: Integer);
+procedure TField.SetAsInteger(AValue: Longint);
 
 begin
-  SetAsLongint(AValue);
+  raise AccessError(SInteger);
 end;
 
 procedure TField.SetAsLargeint(AValue: Largeint);
@@ -1055,7 +1055,7 @@ begin
   Result:=StrToFloat(GetAsString);
 end;
 
-function TStringField.GetAsLongint: Longint;
+function TStringField.GetAsInteger: Longint;
 
 begin
   Result:=StrToInt(GetAsString);
@@ -1159,7 +1159,7 @@ begin
   SetAsString(FloatToStr(AValue));
 end;
 
-procedure TStringField.SetAsLongint(AValue: Longint);
+procedure TStringField.SetAsInteger(AValue: Longint);
 
 begin
   SetAsString(intToStr(AValue));
@@ -1354,7 +1354,7 @@ end;
 
 procedure TNumericField.SetAsBoolean(AValue: Boolean);
 begin
-  SetAsLongint(ord(AValue));
+  SetAsInteger(ord(AValue));
 end;
 
 { ---------------------------------------------------------------------
@@ -1375,15 +1375,15 @@ end;
 function TLongintField.GetAsFloat: Double;
 
 begin
-  Result:=GetAsLongint;
+  Result:=GetAsInteger;
 end;
 
 function TLongintField.GetAsLargeint: Largeint;
 begin
-  Result:=GetAsLongint;
+  Result:=GetAsInteger;
 end;
 
-function TLongintField.GetAsLongint: Longint;
+function TLongintField.GetAsInteger: Longint;
 
 begin
   If Not GetValue(Result) then
@@ -1455,7 +1455,7 @@ end;
 procedure TLongintField.SetAsLargeint(AValue: Largeint);
 begin
   if (AValue>=FMinRange) and (AValue<=FMaxRange) then
-    SetAsLongint(AValue)
+    SetAsInteger(AValue)
   else
     RangeError(AValue,FMinRange,FMaxRange);
 end;
@@ -1463,10 +1463,10 @@ end;
 procedure TLongintField.SetAsFloat(AValue: Double);
 
 begin
-  SetAsLongint(Round(AValue));
+  SetAsInteger(Round(AValue));
 end;
 
-procedure TLongintField.SetAsLongint(AValue: Longint);
+procedure TLongintField.SetAsInteger(AValue: Longint);
 
 begin
   If CheckRange(AValue) then
@@ -1477,7 +1477,7 @@ end;
 
 procedure TLongintField.SetVarValue(const AValue: Variant);
 begin
-  SetAsLongint(AValue);
+  SetAsInteger(AValue);
 end;
 
 procedure TLongintField.SetAsString(const AValue: string);
@@ -1491,7 +1491,7 @@ begin
     begin
     Val(AValue,L,Code);
     If Code=0 then
-      SetAsLongint(L)
+      SetAsInteger(L)
     else
       DatabaseErrorFMT(SNotAnInteger,[AValue]);
     end;
@@ -1573,7 +1573,7 @@ begin
     Result:=Null;
 end;
 
-function TLargeintField.GetAsLongint: Longint;
+function TLargeintField.GetAsInteger: Longint;
 
 begin
   Result:=GetAsLargeint;
@@ -1641,7 +1641,7 @@ begin
     RangeError(AValue,FMinRange,FMaxRange);
 end;
 
-procedure TLargeintField.SetAsLongint(AValue: Longint);
+procedure TLargeintField.SetAsInteger(AValue: Longint);
 
 begin
   SetAsLargeint(AValue);
@@ -1752,7 +1752,7 @@ begin
   SetDataType(ftAutoInc);
 end;
 
-Procedure TAutoIncField.SetAsLongint(AValue : Longint);
+Procedure TAutoIncField.SetAsInteger(AValue: Longint);
 
 begin
   // Some databases allows insertion of explicit values into identity columns
@@ -1802,7 +1802,7 @@ begin
   Result:=Round(GetAsFloat);
 end;
 
-function TFloatField.GetAsLongint: Longint;
+function TFloatField.GetAsInteger: Longint;
 
 begin
   Result:=Round(GetAsFloat);
@@ -1874,7 +1874,7 @@ begin
   SetAsFloat(AValue);
 end;
 
-procedure TFloatField.SetAsLongint(AValue: Longint);
+procedure TFloatField.SetAsInteger(AValue: Longint);
 
 begin
   SetAsFloat(AValue);
@@ -1978,12 +1978,12 @@ begin
     Result:=Length(FDisplays[false,True]);
 end;
 
-function TBooleanField.GetAsInteger: integer;
+function TBooleanField.GetAsInteger: Longint;
 begin
   Result := ord(GetAsBoolean);
 end;
 
-procedure TBooleanField.SetAsInteger(AValue: Integer);
+procedure TBooleanField.SetAsInteger(AValue: Longint);
 begin
   SetAsBoolean(AValue<>0);
 end;
@@ -2425,7 +2425,7 @@ begin
 end;
 
 
-function TBCDField.GetAsLongint: Longint;
+function TBCDField.GetAsInteger: Longint;
 
 begin
   result := round(GetAsCurrency);
@@ -2523,7 +2523,7 @@ begin
 end;
 
 
-procedure TBCDField.SetAsLongint(AValue: Longint);
+procedure TBCDField.SetAsInteger(AValue: Longint);
 
 begin
   SetAsCurrency(AValue);
@@ -2626,7 +2626,7 @@ begin
     Result := 0;
 end;
 
-function TFMTBCDField.GetAsLongint: Longint;
+function TFMTBCDField.GetAsInteger: Longint;
 begin
   Result := round(GetAsFloat);
 end;
@@ -2721,7 +2721,7 @@ begin
   SetAsBCD(IntegerToBCD(AValue));
 end;
 
-procedure TFMTBCDField.SetAsLongint(AValue: Longint);
+procedure TFMTBCDField.SetAsInteger(AValue: Longint);
 begin
   SetAsBCD(IntegerToBCD(AValue));
 end;
@@ -2737,7 +2737,7 @@ end;
 
 { TBlobField }
 
-Function TBlobField.GetBlobStream(Mode : TBlobStreamMode) : TStream;
+function TBlobField.GetBlobStream(Mode: TBlobStreamMode): TStream;
 
 begin
   Result:=FDataset.CreateBlobStream(Self,Mode);
@@ -2748,6 +2748,24 @@ procedure TBlobField.FreeBuffers;
 begin
 end;
 
+function TBlobField.GetAsBytes: TBytes;
+var
+  Stream : TStream;
+  Len    : Integer;
+begin
+  Stream := GetBlobStream(bmRead);
+  if Stream <> nil then
+    try
+      Len := Stream.Size;
+      SetLength(Result, Len);
+      if Len > 0 then
+        Stream.ReadBuffer(Result[0], Len);
+    finally
+      Stream.Free;
+    end
+  else
+    SetLength(Result, 0);
+end;
 
 function TBlobField.GetAsString: string;
 var
@@ -2756,7 +2774,7 @@ var
 begin
   Stream := GetBlobStream(bmRead);
   if Stream <> nil then
-    With Stream do
+    with Stream do
       try
         Len := Size;
         SetLength(Result, Len);
@@ -2776,7 +2794,7 @@ var
 begin
   Stream := GetBlobStream(bmRead);
   if Stream <> nil then
-    With Stream do
+    with Stream do
       try
         Len := Size;
         SetLength(Result, (Len+1) div 2);
@@ -2799,7 +2817,8 @@ begin
     s := GetAsString;
     result := s;
     end
-  else result := Null;
+  else
+    result := Null;
 end;
 
 
@@ -2807,29 +2826,29 @@ function TBlobField.GetBlobSize: Longint;
 var
   Stream: TStream;
 begin
-  Stream := GetBlobStream(bmread);
+  Stream := GetBlobStream(bmRead);
   if Stream <> nil then
-    With Stream do
+    with Stream do
       try
         Result:=Size;
       finally
         Free;
       end
   else
-    result := 0;
+    Result := 0;
 end;
 
 
 function TBlobField.GetIsNull: Boolean;
 
 begin
-  If Not Modified then
-    result:= inherited GetIsnull
+  if Not Modified then
+    Result:= inherited GetIsNull
   else
-    With GetBlobStream(bmread) do
+    with GetBlobStream(bmRead) do
       try
         Result:=(Size=0);
-      Finally
+      finally
         Free;
       end;
 end;
@@ -2841,12 +2860,26 @@ begin
   TheText:=inherited GetAsString;
 end;
 
+procedure TBlobField.SetAsBytes(const AValue: TBytes);
+var
+  Len : Integer;
+begin
+  with GetBlobStream(bmWrite) do
+    try
+      Len := Length(AValue);
+      if Len > 0 then
+        WriteBuffer(AValue[0], Len);
+    finally
+      Free;
+    end;
+end;
+
 
 procedure TBlobField.SetAsString(const AValue: string);
 var
   Len : Integer;
 begin
-  With GetBlobStream(bmwrite) do
+  with GetBlobStream(bmWrite) do
     try
       Len := Length(AValue);
       if Len > 0 then
@@ -2861,7 +2894,7 @@ procedure TBlobField.SetAsWideString(const AValue: WideString);
 var
   Len : Integer;
 begin
-  With GetBlobStream(bmwrite) do
+  with GetBlobStream(bmWrite) do
     try
       Len := Length(AValue) * 2;
       if Len > 0 then
@@ -2923,8 +2956,8 @@ end;
 procedure TBlobField.LoadFromStream(Stream: TStream);
 
 begin
-  With GetBlobStream(bmWrite) do
-    Try
+  with GetBlobStream(bmWrite) do
+    try
       CopyFrom(Stream,0);
     finally
       Free;
@@ -3138,7 +3171,7 @@ begin
   SetVarValue(aValue);
 end;
 
-procedure TVariantField.SetAsInteger(aValue: Longint);
+procedure TVariantField.SetAsInteger(AValue: Longint);
 begin
   SetVarValue(aValue);
 end;

@@ -139,10 +139,10 @@ uses
         R : TResourceStringItem;
       begin
         { Put resourcestrings in a new objectfile. Putting it in multiple files
-	  makes the linking too dependent on the linker script requiring a SORT(*) for
-	  the data sections }
+          makes the linking too dependent on the linker script requiring a SORT(*) for
+          the data sections }
         maybe_new_object_file(current_asmdata.asmlists[al_const]);
-        new_section(current_asmdata.asmlists[al_const],sec_data,make_mangledname('RESSTRTABLE',current_module.localsymtable,''),sizeof(pint));
+        new_section(current_asmdata.asmlists[al_const],sec_rodata_norel,make_mangledname('RESSTRTABLE',current_module.localsymtable,''),sizeof(pint));
 
         maybe_new_object_file(current_asmdata.asmlists[al_resourcestrings]);
         new_section(current_asmdata.asmlists[al_resourcestrings],sec_data,make_mangledname('RESSTR',current_module.localsymtable,'1_START'),sizeof(pint));
@@ -152,8 +152,8 @@ uses
         { Write unitname entry }
         namelab:=emit_ansistring_const(current_asmdata.asmlists[al_const],@current_module.localsymtable.name^[1],length(current_module.localsymtable.name^),getansistringcodepage,False);
         current_asmdata.asmlists[al_resourcestrings].concat(tai_const.Create_sym_offset(namelab.lab,namelab.ofs));
-        current_asmdata.asmlists[al_resourcestrings].concat(tai_const.create_sym(nil));
-        current_asmdata.asmlists[al_resourcestrings].concat(tai_const.create_sym(nil));
+        current_asmdata.asmlists[al_resourcestrings].concat(tai_const.create_nil_dataptr);
+        current_asmdata.asmlists[al_resourcestrings].concat(tai_const.create_nil_dataptr);
         current_asmdata.asmlists[al_resourcestrings].concat(tai_const.create_32bit(0));
 {$ifdef cpu64bitaddr}
         current_asmdata.asmlists[al_resourcestrings].concat(tai_const.create_32bit(0));

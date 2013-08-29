@@ -92,11 +92,6 @@
       NR_FRAME_POINTER_REG = NR_BP;
       { Return address for DWARF }
       NR_RETURN_ADDRESS_REG = NR_EIP;
-      {# Register for addressing absolute data in a position independant way,
-         such as in PIC code. The exact meaning is ABI specific. For
-         further information look at GCC source : PIC_OFFSET_TABLE_REGNUM
-      }
-      NR_PIC_OFFSET_REG = NR_BX;
       { Results are returned in this register (16-bit values) }
       NR_FUNCTION_RETURN_REG = NR_AX;
       RS_FUNCTION_RETURN_REG = RS_AX;
@@ -106,6 +101,18 @@
       { High part of 32bit return value }
       NR_FUNCTION_RETURN32_HIGH_REG = NR_DX;
       RS_FUNCTION_RETURN32_HIGH_REG = RS_DX;
+      { Bits 0..15 of 64bit return value }
+      NR_FUNCTION_RETURN64_LOW_REG = NR_DX;
+      RS_FUNCTION_RETURN64_LOW_REG = RS_DX;
+      { Bits 16..31 of 64bit return value }
+      NR_FUNCTION_RETURN64_HIGH_REG = NR_CX;
+      RS_FUNCTION_RETURN64_HIGH_REG = RS_CX;
+      { Bits 32..47 of 64bit return value }
+      NR_FUNCTION_RETURN64_HIGHER_REG = NR_BX;
+      RS_FUNCTION_RETURN64_HIGHER_REG = RS_BX;
+      { Bits 48..63 of 64bit return value }
+      NR_FUNCTION_RETURN64_HIGHEST_REG = NR_AX;
+      RS_FUNCTION_RETURN64_HIGHEST_REG = RS_AX;
       { The value returned from a function is available in this register }
       NR_FUNCTION_RESULT_REG = NR_FUNCTION_RETURN_REG;
       RS_FUNCTION_RESULT_REG = RS_FUNCTION_RETURN_REG;
@@ -115,6 +122,18 @@
       { The high part of 32bit value returned from a function }
       NR_FUNCTION_RESULT32_HIGH_REG = NR_FUNCTION_RETURN32_HIGH_REG;
       RS_FUNCTION_RESULT32_HIGH_REG = RS_FUNCTION_RETURN32_HIGH_REG;
+      { Bits 0..15 of 64bit return value returned from a function }
+      NR_FUNCTION_RESULT64_LOW_REG = NR_FUNCTION_RETURN64_LOW_REG;
+      RS_FUNCTION_RESULT64_LOW_REG = RS_FUNCTION_RETURN64_LOW_REG;
+      { Bits 16..31 of 64bit return value returned from a function }
+      NR_FUNCTION_RESULT64_HIGH_REG = NR_FUNCTION_RETURN64_HIGH_REG;
+      RS_FUNCTION_RESULT64_HIGH_REG = RS_FUNCTION_RETURN64_HIGH_REG;
+      { Bits 32..47 of 64bit return value returned from a function }
+      NR_FUNCTION_RESULT64_HIGHER_REG = NR_FUNCTION_RETURN64_HIGHER_REG;
+      RS_FUNCTION_RESULT64_HIGHER_REG = RS_FUNCTION_RETURN64_HIGHER_REG;
+      { Bits 48..63 of 64bit return value returned from a function }
+      NR_FUNCTION_RESULT64_HIGHEST_REG = NR_FUNCTION_RETURN64_HIGHEST_REG;
+      RS_FUNCTION_RESULT64_HIGHEST_REG = RS_FUNCTION_RETURN64_HIGHEST_REG;
 
       { WARNING: don't change to R_ST0!! See comments above implementation of }
       { a_loadfpu* methods in rgcpu (JM)                                      }
@@ -136,7 +155,7 @@
          This value can be deduced from the CALLED_USED_REGISTERS array in the
          GCC source.
       }
-      saved_standard_registers : array[0..3] of tsuperregister = (RS_BX,RS_SI,RS_DI,RS_BP);
+      saved_standard_registers : array[0..0] of tsuperregister = (RS_BP);
 
       saved_mm_registers : array[0..0] of tsuperregister = (RS_INVALID);
       {# Required parameter alignment when calling a routine declared as

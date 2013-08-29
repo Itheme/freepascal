@@ -14,7 +14,7 @@ begin
 
     P:=AddPackage('hermes');
 {$ifdef ALLPACKAGES}
-    P.Directory:='hermes';
+    P.Directory:=ADirectory;
 {$endif ALLPACKAGES}
     P.Version:='2.7.1';
 
@@ -24,7 +24,7 @@ begin
     P.Email := '';
     P.Description := 'Library for pixel graphics conversion';
     P.NeedLibC := false;
-    P.OSes:=AllOSes-[embedded];
+    P.OSes:=AllOSes-[embedded,msdos];
 
     P.SourcePath.Add('src');
     P.IncludePath.Add('src');

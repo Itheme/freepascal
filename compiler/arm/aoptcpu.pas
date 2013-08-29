@@ -57,6 +57,7 @@ Type
   private
    function SkipEntryExitMarker(current: tai; var next: tai): boolean;
   protected
+    function LookForPreindexedPattern(p: taicpu): boolean;
     function LookForPostindexedPattern(p: taicpu): boolean;
   End;
 
@@ -374,9 +375,8 @@ Implementation
 
               { taicpu(p).oper[0]^.reg is not used anymore, try to find its allocation
                 and remove it if possible }
-              GetLastInstruction(p,hp1);
               asml.Remove(dealloc);
-              alloc:=FindRegAlloc(taicpu(p).oper[0]^.reg,tai(hp1.Next));
+              alloc:=FindRegAllocBackward(taicpu(p).oper[0]^.reg,tai(p.previous));
               if assigned(alloc) then
                 begin
                   asml.Remove(alloc);
@@ -405,6 +405,61 @@ Implementation
         end;
     end;
 
+  {
+    optimize
+      add/sub reg1,reg1,regY/const
+      ...
+      ldr/str regX,[reg1]
+
+      into
+
+      ldr/str regX,[reg1, regY/const]!
+  }
+  function TCpuAsmOptimizer.LookForPreindexedPattern(p: taicpu): boolean;
+    var
+      hp1: tai;
+    begin
+      if (current_settings.cputype in cpu_arm) and
+        (p.ops=3) and
+        MatchOperand(p.oper[0]^, p.oper[1]^.reg) and
+        GetNextInstructionUsingReg(p, hp1, p.oper[0]^.reg) and
+        (not RegModifiedBetween(p.oper[0]^.reg, p, hp1)) and
+        MatchInstruction(hp1, [A_LDR,A_STR], [C_None], [PF_None,PF_B,PF_H,PF_SH,PF_SB]) and
+        (taicpu(hp1).oper[1]^.ref^.addressmode=AM_OFFSET) and
+        (taicpu(hp1).oper[1]^.ref^.base=p.oper[0]^.reg) and
+        (taicpu(hp1).oper[0]^.reg<>p.oper[0]^.reg) and
+        (taicpu(hp1).oper[1]^.ref^.offset=0) and
+        (taicpu(hp1).oper[1]^.ref^.index=NR_NO) and
+        (((p.oper[2]^.typ=top_reg) and
+          (not RegModifiedBetween(p.oper[2]^.reg, p, hp1))) or
+         ((p.oper[2]^.typ=top_const) and
+          ((abs(p.oper[2]^.val) < 256) or
+           ((abs(p.oper[2]^.val) < 4096) and
+            (taicpu(hp1).oppostfix in [PF_None,PF_B]))))) then
+        begin
+          taicpu(hp1).oper[1]^.ref^.addressmode:=AM_PREINDEXED;
+
+          if p.oper[2]^.typ=top_reg then
+            begin
+              taicpu(hp1).oper[1]^.ref^.index:=p.oper[2]^.reg;
+              if p.opcode=A_ADD then
+                taicpu(hp1).oper[1]^.ref^.signindex:=1
+              else
+                taicpu(hp1).oper[1]^.ref^.signindex:=-1;
+            end
+          else
+            begin
+              if p.opcode=A_ADD then
+                taicpu(hp1).oper[1]^.ref^.offset:=p.oper[2]^.val
+              else
+                taicpu(hp1).oper[1]^.ref^.offset:=-p.oper[2]^.val;
+            end;
+
+          result:=true;
+        end
+      else
+        result:=false;
+    end;
 
   {
     optimize
@@ -443,7 +498,8 @@ Implementation
         not(RegModifiedBetween(taicpu(hp1).oper[0]^.reg,p,hp1)) and
         { don't apply the optimization if the (new) index register is loaded }
         (p.oper[0]^.reg<>taicpu(hp1).oper[2]^.reg) and
-        not(RegModifiedBetween(taicpu(hp1).oper[2]^.reg,p,hp1)) then
+        not(RegModifiedBetween(taicpu(hp1).oper[2]^.reg,p,hp1)) and
+        (current_settings.cputype in cpu_arm) then
         begin
           DebugMsg('Peephole Str/LdrAdd/Sub2Str/Ldr Postindex done', p);
           p.oper[1]^.ref^.addressmode:=AM_POSTINDEXED;
@@ -669,6 +725,30 @@ Implementation
                           end;
                       end;
 
+                    {
+                      Change
+
+                        ldrb dst1, [REF]
+                        and  dst2, dst1, #255
+
+                      into
+
+                        ldrb dst2, [ref]
+                    }
+                    if (taicpu(p).oppostfix=PF_B) and
+                       GetNextInstructionUsingReg(p, hp1, taicpu(p).oper[0]^.reg) and
+                       MatchInstruction(hp1, A_AND, [taicpu(p).condition], [PF_NONE]) and
+                       (taicpu(hp1).oper[1]^.reg = taicpu(p).oper[0]^.reg) and
+                       (taicpu(hp1).oper[2]^.typ = top_const) and
+                       (taicpu(hp1).oper[2]^.val = $FF) and
+                       not(RegUsedBetween(taicpu(hp1).oper[0]^.reg, p, hp1)) and
+                       RegEndOfLife(taicpu(p).oper[0]^.reg, taicpu(hp1)) then
+                       begin
+                         DebugMsg('Peephole LdrbAnd2Ldrb done', p);
+                         taicpu(p).oper[0]^.reg := taicpu(hp1).oper[0]^.reg;
+                         asml.remove(hp1);
+                         hp1.free;
+                       end;
                     LookForPostindexedPattern(taicpu(p));
                     { Remove superfluous mov after ldr
                       changes
@@ -1150,18 +1230,35 @@ Implementation
                        {Only LDR, LDRB, STR, STRB can handle scaled register indexing}
                        MatchInstruction(hp1, [A_LDR, A_STR], [taicpu(p).condition],
                                              [PF_None, PF_B]) and
-                       (taicpu(hp1).oper[1]^.ref^.index = taicpu(p).oper[0]^.reg) and
-                       (taicpu(hp1).oper[1]^.ref^.base <> taicpu(p).oper[0]^.reg) and
+                       (
+                         {If this is address by offset, one of the two registers can be used}
+                         ((taicpu(hp1).oper[1]^.ref^.addressmode=AM_OFFSET) and
+                           (
+                             (taicpu(hp1).oper[1]^.ref^.index = taicpu(p).oper[0]^.reg) xor
+                             (taicpu(hp1).oper[1]^.ref^.base = taicpu(p).oper[0]^.reg)
+                           )
+                         ) or
+                         {For post and preindexed only the index register can be used}
+                         ((taicpu(hp1).oper[1]^.ref^.addressmode in [AM_POSTINDEXED, AM_PREINDEXED]) and
+                           (
+                             (taicpu(hp1).oper[1]^.ref^.index = taicpu(p).oper[0]^.reg) and
+                             (taicpu(hp1).oper[1]^.ref^.base <> taicpu(p).oper[0]^.reg)
+                           )
+                         )
+                       ) and
                        { Only fold if there isn't another shifterop already. }
                        (taicpu(hp1).oper[1]^.ref^.shiftmode = SM_None) and
                        not(RegModifiedBetween(taicpu(p).oper[1]^.reg,p,hp1)) and
                        (assigned(FindRegDealloc(taicpu(p).oper[0]^.reg,tai(hp1.Next))) or
                          regLoadedWithNewValue(taicpu(p).oper[0]^.reg, hp1)) then
                        begin
-                         DebugMsg('Peephole FoldShiftLdrStr done', hp1);
+                         { If the register we want to do the shift for resides in base, we need to swap that}
+                         if (taicpu(hp1).oper[1]^.ref^.base = taicpu(p).oper[0]^.reg) then
+                           taicpu(hp1).oper[1]^.ref^.base := taicpu(hp1).oper[1]^.ref^.index;
                          taicpu(hp1).oper[1]^.ref^.index := taicpu(p).oper[1]^.reg;
                          taicpu(hp1).oper[1]^.ref^.shiftmode := taicpu(p).oper[2]^.shifterop^.shiftmode;
                          taicpu(hp1).oper[1]^.ref^.shiftimm := taicpu(p).oper[2]^.shifterop^.shiftimm;
+                         DebugMsg('Peephole FoldShiftLdrStr done', hp1);
                          asml.remove(p);
                          p.free;
                          p:=hp1;
@@ -1427,6 +1524,16 @@ Implementation
                       begin
                         if (taicpu(p).ops=3) then
                           RemoveSuperfluousMove(p, hp1, 'DataMov2Data');
+                      end;
+
+                    if MatchInstruction(p, [A_ADD,A_SUB], [C_None], [PF_None]) and
+                      LookForPreindexedPattern(taicpu(p)) then
+                      begin
+                        GetNextInstruction(p,hp1);
+                        DebugMsg('Peephole Add/Sub to Preindexed done', p);
+                        asml.remove(p);
+                        p.free;
+                        p:=hp1;
                       end;
                   end;
 {$ifdef dummy}                  
@@ -2037,12 +2144,12 @@ Implementation
   { TODO : schedule also forward }
   { TODO : schedule distance > 1 }
     var
-      hp1,hp2,hp3,hp4,hp5 : tai;
+      hp1,hp2,hp3,hp4,hp5,insertpos : tai;
       list : TAsmList;
     begin
       result:=true;
 
-      list:=TAsmList.Create;
+      list:=TAsmList.create_without_marker;
       p:=BlockStart;
       while p<>BlockEnd Do
         begin
@@ -2128,11 +2235,22 @@ Implementation
                 end;
 
               asml.Remove(hp1);
+              { if there are address labels associated with hp2, those must
+                stay with hp2 (e.g. for GOT-less PIC) }
+              insertpos:=hp2;
+              while assigned(hp2.previous) and
+                    (tai(hp2.previous).typ<>ait_instruction) do
+                begin
+                  hp2:=tai(hp2.previous);
+                  if (hp2.typ=ait_label) and
+                     (tai_label(hp2).labsym.typ=AT_ADDR) then
+                    insertpos:=hp2;
+                end;
 {$ifdef DEBUG_PREREGSCHEDULER}
-              asml.insertbefore(tai_comment.Create(strpnew('Rescheduled')),hp2);
+              asml.insertbefore(tai_comment.Create(strpnew('Rescheduled')),insertpos);
 {$endif DEBUG_PREREGSCHEDULER}
-              asml.InsertBefore(hp1,hp2);
-              asml.InsertListBefore(hp2,list);
+              asml.InsertBefore(hp1,insertpos);
+              asml.InsertListBefore(insertpos,list);
               p:=tai(p.next)
             end
           else if p.typ=ait_instruction then

@@ -294,7 +294,7 @@ implementation
          end
         else
          begin
-           { length in ansi/wide strings is at offset -sizeof(pint) }
+           { length in ansi/wide strings and high in dynamic arrays is at offset -sizeof(pint) }
            hlcg.location_force_reg(current_asmdata.CurrAsmList,left.location,left.resultdef,left.resultdef,false);
            current_asmdata.getjumplabel(lengthlab);
            cg.a_cmp_const_reg_label(current_asmdata.CurrAsmList,OS_ADDR,OC_EQ,0,left.location.register,lengthlab);
@@ -312,6 +312,11 @@ implementation
              end;
            if is_widestring(left.resultdef) then
              cg.a_op_const_reg(current_asmdata.CurrAsmList,OP_SHR,OS_INT,1,hregister);
+
+           { Dynamic arrays do not have their length attached but their maximum index }
+           if is_dynamic_array(left.resultdef) then
+             cg.a_op_const_reg(current_asmdata.CurrAsmList,OP_ADD,OS_INT,1,hregister);
+
            cg.a_label(current_asmdata.CurrAsmList,lengthlab);
            location_reset(location,LOC_REGISTER,def_cgsize(resultdef));
            location.register:=hregister;
@@ -451,13 +456,8 @@ implementation
                          TYPEINFO GENERIC HANDLING
 *****************************************************************************}
       procedure tcginlinenode.second_typeinfo;
-        var
-         href : treference;
         begin
-          location_reset(location,LOC_REGISTER,OS_ADDR);
-          location.register:=cg.getaddressregister(current_asmdata.CurrAsmList);
-          reference_reset_symbol(href,RTTIWriter.get_rtti_label(left.resultdef,fullrtti),0,sizeof(pint));
-          cg.a_loadaddr_ref_reg(current_asmdata.CurrAsmList,href,location.register);
+          internalerror(2013060301);
         end;
 
 
@@ -733,7 +733,7 @@ implementation
 
       if (left.location.loc <> LOC_REGISTER) or
          (left.location.size <> opsize) then
-        hlcg.location_force_reg(current_asmdata.CurrAsmList,left.location,left.resultdef,hlcg.tcgsize2orddef(opsize),true);
+        hlcg.location_force_reg(current_asmdata.CurrAsmList,left.location,left.resultdef,cgsize_orddef(opsize),true);
 
       location_reset(location,LOC_REGISTER,opsize);
       location.register := cg.getintregister(current_asmdata.CurrAsmList,opsize);

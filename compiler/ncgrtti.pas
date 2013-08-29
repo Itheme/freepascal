@@ -343,7 +343,7 @@ implementation
                 if not(po_virtualmethod in tprocdef(propaccesslist.procdef).procoptions) or
                    is_objectpascal_helper(tprocdef(propaccesslist.procdef).struct) then
                   begin
-                     current_asmdata.asmlists[al_rtti].concat(Tai_const.createname(tprocdef(propaccesslist.procdef).mangledname,0));
+                     current_asmdata.asmlists[al_rtti].concat(Tai_const.createname(tprocdef(propaccesslist.procdef).mangledname,AT_FUNCTION,0));
                      typvalue:=1;
                   end
                 else
@@ -604,11 +604,16 @@ implementation
                    write_rtti_reference(curdef.rangedef,rt);
                    inc(dimcount);
                    totalcount:=totalcount*curdef.elecount;
-                   if assigned(curdef.elementdef)and(curdef.elementdef.typ=arraydef) then
+                   { get the next static array }
+                   if assigned(curdef.elementdef) and
+                      (curdef.elementdef.typ=arraydef) and
+                      not(ado_IsDynamicArray in tarraydef(curdef.elementdef).arrayoptions) then
                      curdef:=tarraydef(curdef.elementdef)
                    else
                      break;
                  end;
+               if (tf_requires_proper_alignment in target_info.flags) then
+                 current_asmdata.asmlists[al_rtti].InsertAfter(cai_align.Create(sizeof(TConstPtrUInt)),lastai);
                { dimension count }
                current_asmdata.asmlists[al_rtti].InsertAfter(Tai_const.Create_8bit(dimcount),lastai);
                { last dimension element type }
@@ -735,6 +740,7 @@ implementation
                  begin
                    { write flags for current parameter }
                    write_param_flag(parasym);
+                   maybe_write_align;
                    { write param type }
                    write_rtti_reference(parasym.vardef,fullrtti);
                    { write name of current parameter }
@@ -811,7 +817,7 @@ implementation
 
               { flags }
               current_asmdata.asmlists[al_rtti].concat(Tai_const.Create_8bit(0));
-              maybe_write_align;
+              //maybe_write_align;     // aligning between bytes is not necessary
               { write calling convention }
               current_asmdata.asmlists[al_rtti].concat(Tai_const.Create_8bit(ProcCallOptionToCallConv[def.proccalloption]));
               maybe_write_align;
@@ -819,9 +825,11 @@ implementation
               write_rtti_reference(def.returndef,fullrtti);
               { write parameter count }
               current_asmdata.asmlists[al_rtti].concat(Tai_const.Create_8bit(def.maxparacount));
-              maybe_write_align;
               for i:=0 to def.paras.count-1 do
-                write_procedure_param(tparavarsym(def.paras[i]));
+                begin
+                  maybe_write_align;
+                  write_procedure_param(tparavarsym(def.paras[i]));
+                end;
             end;
         end;
 
@@ -849,9 +857,9 @@ implementation
 
             if not is_objectpascal_helper(def) then
               if (oo_has_vmt in def.objectoptions) then
-                current_asmdata.asmlists[al_rtti].concat(Tai_const.Createname(def.vmt_mangledname,0))
+                current_asmdata.asmlists[al_rtti].concat(Tai_const.Createname(def.vmt_mangledname,AT_DATA,0))
               else
-                current_asmdata.asmlists[al_rtti].concat(Tai_const.create_sym(nil));
+                current_asmdata.asmlists[al_rtti].concat(Tai_const.Create_nil_dataptr);
 
             { write parent typeinfo }
             write_rtti_reference(def.childof,fullrtti);
@@ -1290,8 +1298,8 @@ implementation
 
     procedure TRTTIWriter.write_rtti_reference(def:tdef;rt:trttitype);
       begin
-        if not assigned(def) or is_void(def) or is_objc_class_or_protocol(def) then
-          current_asmdata.asmlists[al_rtti].concat(Tai_const.Create_sym(nil))
+        if not assigned(def) or is_void(def) or ((rt<>initrtti) and is_objc_class_or_protocol(def)) then
+          current_asmdata.asmlists[al_rtti].concat(Tai_const.Create_nil_dataptr)
         else
           current_asmdata.asmlists[al_rtti].concat(Tai_const.Create_sym(ref_rtti(def,rt)));
       end;
@@ -1299,7 +1307,7 @@ implementation
 
     function TRTTIWriter.ref_rtti(def:tdef;rt:trttitype):tasmsymbol;
       begin
-        result:=current_asmdata.RefAsmSymbol(def.rtti_mangledname(rt));
+        result:=current_asmdata.RefAsmSymbol(def.rtti_mangledname(rt),AT_DATA);
         if (cs_create_pic in current_settings.moduleswitches) and
            assigned(current_procinfo) then
           include(current_procinfo.flags,pi_needs_got);
@@ -1335,7 +1343,7 @@ implementation
 
     function TRTTIWriter.get_rtti_label(def:tdef;rt:trttitype):tasmsymbol;
       begin
-        result:=current_asmdata.RefAsmSymbol(def.rtti_mangledname(rt));
+        result:=current_asmdata.RefAsmSymbol(def.rtti_mangledname(rt),AT_DATA);
         if (cs_create_pic in current_settings.moduleswitches) and
            assigned(current_procinfo) then
           include(current_procinfo.flags,pi_needs_got);
@@ -1343,7 +1351,7 @@ implementation
 
     function TRTTIWriter.get_rtti_label_ord2str(def:tdef;rt:trttitype):tasmsymbol;
       begin
-        result:=current_asmdata.RefAsmSymbol(def.rtti_mangledname(rt)+'_o2s');
+        result:=current_asmdata.RefAsmSymbol(def.rtti_mangledname(rt)+'_o2s',AT_DATA);
         if (cs_create_pic in current_settings.moduleswitches) and
            assigned(current_procinfo) then
           include(current_procinfo.flags,pi_needs_got);
@@ -1351,7 +1359,7 @@ implementation
 
     function TRTTIWriter.get_rtti_label_str2ord(def:tdef;rt:trttitype):tasmsymbol;
       begin
-        result:=current_asmdata.RefAsmSymbol(def.rtti_mangledname(rt)+'_s2o');
+        result:=current_asmdata.RefAsmSymbol(def.rtti_mangledname(rt)+'_s2o',AT_DATA);
         if (cs_create_pic in current_settings.moduleswitches) and
            assigned(current_procinfo) then
           include(current_procinfo.flags,pi_needs_got);
