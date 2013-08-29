@@ -1,6 +1,6 @@
 #
 #   This file is part of the Free Pascal Compiler
-#   Copyright (c) 1999-2009 by the Free Pascal Development team
+#   Copyright (c) 1999-2013 by the Free Pascal Development team
 #
 #   English (default) Language File for Free Pascal
 #
@@ -3055,6 +3055,9 @@ unit_u_indirect_crc_changed=10062_U_Indirect interface (objects/classes) CRC cha
 % in the interfaces of units directly or indirectly used by this unit in the interface) has been changed after the
 % implementation has been parsed.
 % \end{description}
+unit_u_ppu_invalid_memory_model=10063_U_PPU is compiled for another i8086 memory model
+% This unit file was compiled for a different i8086 memory model and
+% cannot be read.
 # EndOfTeX
 
 #
@@ -3398,7 +3401,7 @@ S*2Aas_Assemble using GNU AS
 **2bl_Generate local symbol info
 **1B_Build all modules
 **1C<x>_Code generation options:
-**2C3<x>_Turn on ieee error checking for constants
+**2C3_Turn on ieee error checking for constants
 **2Ca<x>_Select ABI, see fpc -i for possible values
 **2Cb_Generate code for a big-endian variant of the target architecture
 **2Cc<x>_Set default calling convention to <x>
@@ -3409,6 +3412,7 @@ S*2Aas_Assemble using GNU AS
 **2Cg_Generate PIC code
 **2Ch<n>_<n> bytes heap (between 1023 and 67107840)
 **2Ci_IO-checking
+A*2CI<x>_Select instruction set on ARM: ARM or THUMB
 **2Cn_Omit linking stage
 P*2CN_Generate nil-pointer checks (AIX-only)
 **2Co_Check overflow of integer operations
